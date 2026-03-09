@@ -7,7 +7,7 @@ import redis
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-GPU_COUNT = int(os.getenv("GPU_COUNT", "4"))
+GPU_COUNT = int(os.getenv("GPU_COUNT", "1"))
 JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -67,7 +67,7 @@ def release_gpu(gpu_id: int):
     r.set(key, json.dumps(gpu))
 
 
-def execute_job(job_id: str, code: str, gpu_id: int):
+def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, memory: str):
     filename = f"{job_id}.py"
     worker_job_file = f"/jobs/{filename}"
 
@@ -93,11 +93,15 @@ def execute_job(job_id: str, code: str, gpu_id: int):
                 "docker",
                 "run",
                 "--rm",
+                "--cpus",
+                str(cpus),
+                "--memory",
+                memory,
                 "--gpus",
                 f"device={gpu_id}",
                 "-v",
                 f"{JOB_VOLUME_NAME}:/workspace",
-                "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
+                image,
                 "python",
                 f"/workspace/{filename}",
             ],
@@ -171,7 +175,14 @@ def main():
                 if gpu_id is None:
                     time.sleep(1)
 
-            execute_job(job_id, job["code"], gpu_id)
+            execute_job(
+                job_id=job_id,
+                code=job["code"],
+                gpu_id=gpu_id,
+                image=job["image"],
+                cpus=job.get("cpus", 1.0),
+                memory=job.get("memory", "2g"),
+            )
 
         except Exception as e:
             print(f"Worker loop error: {e}")

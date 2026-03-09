@@ -10,13 +10,20 @@ app = FastAPI()
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-GPU_COUNT = int(os.getenv("GPU_COUNT", "4"))
+GPU_COUNT = int(os.getenv("GPU_COUNT", "1"))
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
+RUNTIME_PROFILES = {
+    "pytorch-cu121": "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
+}
 
 
 class JobRequest(BaseModel):
     code: str
+    runtime: str = "pytorch-cu121"
+    cpus: float = 1.0
+    memory: str = "2g"
 
 
 def initialize_gpus():
@@ -42,13 +49,28 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/runtimes")
+def list_runtimes():
+    return {"runtimes": list(RUNTIME_PROFILES.keys())}
+
+
 @app.post("/submit-job")
 def submit_job(job: JobRequest):
+    if job.runtime not in RUNTIME_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported runtime '{job.runtime}'. Allowed: {list(RUNTIME_PROFILES.keys())}",
+        )
+
     job_id = str(uuid.uuid4())
 
     job_data = {
         "job_id": job_id,
         "code": job.code,
+        "runtime": job.runtime,
+        "image": RUNTIME_PROFILES[job.runtime],
+        "cpus": job.cpus,
+        "memory": job.memory,
         "status": "queued",
         "gpu_id": None,
         "created_at": datetime.utcnow().isoformat(),
@@ -65,6 +87,7 @@ def submit_job(job: JobRequest):
     return {
         "job_id": job_id,
         "status": "queued",
+        "runtime": job.runtime,
     }
 
 
@@ -98,6 +121,7 @@ def list_gpus():
         if raw:
             gpus.append(json.loads(raw))
     return {"gpus": gpus}
+
 
 @app.get("/cluster-status")
 def cluster_status():
