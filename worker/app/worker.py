@@ -20,7 +20,11 @@ def update_job(job_id: str, updates: dict):
 
     job = json.loads(raw)
     job.update(updates)
-    r.set(f"job:{job_id}", json.dumps(job))
+    r.setex(
+    f"job:{job_id}",
+    60 * 60 * 24,
+    json.dumps(job)
+)
 
 
 def get_free_gpu():

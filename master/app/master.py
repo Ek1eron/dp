@@ -81,7 +81,11 @@ def submit_job(job: JobRequest):
         "return_code": None,
     }
 
-    r.set(f"job:{job_id}", json.dumps(job_data))
+    r.setex(
+    f"job:{job_id}",
+    60 * 60 * 24,  
+    json.dumps(job_data)
+)
     r.rpush("job_queue", job_id)
 
     return {
@@ -183,3 +187,21 @@ def cluster_status():
         },
         "queue_length": queue_length,
     }
+
+@app.delete("/jobs/cleanup")
+def cleanup_jobs():
+    keys = r.keys("job:*")
+    removed = 0
+
+    for key in keys:
+        raw = r.get(key)
+        if not raw:
+            continue
+
+        job = json.loads(raw)
+
+        if job["status"] in ["completed", "failed"]:
+            r.delete(key)
+            removed += 1
+
+    return {"removed_jobs": removed}
