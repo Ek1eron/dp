@@ -1,6 +1,5 @@
 import subprocess
 import os
-import uuid
 import time
 import json
 from datetime import datetime
@@ -8,6 +7,7 @@ import redis
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+GPU_COUNT = int(os.getenv("GPU_COUNT", "4"))
 JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -23,7 +23,51 @@ def update_job(job_id: str, updates: dict):
     r.set(f"job:{job_id}", json.dumps(job))
 
 
-def execute_job(job_id: str, code: str):
+def get_free_gpu():
+    for gpu_id in range(GPU_COUNT):
+        key = f"gpu:{gpu_id}"
+        raw = r.get(key)
+        if not raw:
+            continue
+
+        gpu = json.loads(raw)
+        if gpu["status"] == "idle":
+            gpu["status"] = "busy"
+            gpu["job_id"] = None
+            gpu["updated_at"] = datetime.utcnow().isoformat()
+            r.set(key, json.dumps(gpu))
+            return gpu_id
+
+    return None
+
+
+def reserve_gpu_for_job(gpu_id: int, job_id: str):
+    key = f"gpu:{gpu_id}"
+    raw = r.get(key)
+    if not raw:
+        return
+
+    gpu = json.loads(raw)
+    gpu["status"] = "busy"
+    gpu["job_id"] = job_id
+    gpu["updated_at"] = datetime.utcnow().isoformat()
+    r.set(key, json.dumps(gpu))
+
+
+def release_gpu(gpu_id: int):
+    key = f"gpu:{gpu_id}"
+    raw = r.get(key)
+    if not raw:
+        return
+
+    gpu = json.loads(raw)
+    gpu["status"] = "idle"
+    gpu["job_id"] = None
+    gpu["updated_at"] = datetime.utcnow().isoformat()
+    r.set(key, json.dumps(gpu))
+
+
+def execute_job(job_id: str, code: str, gpu_id: int):
     filename = f"{job_id}.py"
     worker_job_file = f"/jobs/{filename}"
 
@@ -31,10 +75,12 @@ def execute_job(job_id: str, code: str):
         job_id,
         {
             "status": "running",
+            "gpu_id": gpu_id,
             "started_at": datetime.utcnow().isoformat(),
         },
     )
-    set_gpu_status("busy", job_id)
+
+    reserve_gpu_for_job(gpu_id, job_id)
 
     try:
         os.makedirs("/jobs", exist_ok=True)
@@ -48,7 +94,7 @@ def execute_job(job_id: str, code: str):
                 "run",
                 "--rm",
                 "--gpus",
-                "all",
+                f"device={gpu_id}",
                 "-v",
                 f"{JOB_VOLUME_NAME}:/workspace",
                 "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
@@ -96,12 +142,12 @@ def execute_job(job_id: str, code: str):
         )
 
     finally:
-        set_gpu_status("idle", None)
+        release_gpu(gpu_id)
         if os.path.exists(worker_job_file):
             os.remove(worker_job_file)
 
+
 def main():
-    initialize_gpu_status()
     print("Worker started. Waiting for jobs...")
 
     while True:
@@ -118,24 +164,19 @@ def main():
                 continue
 
             job = json.loads(raw)
-            execute_job(job_id, job["code"])
+
+            gpu_id = None
+            while gpu_id is None:
+                gpu_id = get_free_gpu()
+                if gpu_id is None:
+                    time.sleep(1)
+
+            execute_job(job_id, job["code"], gpu_id)
 
         except Exception as e:
             print(f"Worker loop error: {e}")
             time.sleep(2)
 
-def set_gpu_status(status: str, job_id: str | None = None):
-    gpu_info = {
-        "status": status,
-        "job_id": job_id,
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-    r.set("gpu:0", json.dumps(gpu_info))
-
-
-def initialize_gpu_status():
-    if not r.get("gpu:0"):
-        set_gpu_status("idle", None)
 
 if __name__ == "__main__":
     main()

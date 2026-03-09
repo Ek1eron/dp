@@ -10,12 +10,31 @@ app = FastAPI()
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+GPU_COUNT = int(os.getenv("GPU_COUNT", "4"))
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 
 class JobRequest(BaseModel):
     code: str
+
+
+def initialize_gpus():
+    for gpu_id in range(GPU_COUNT):
+        key = f"gpu:{gpu_id}"
+        if not r.get(key):
+            gpu_data = {
+                "gpu_id": gpu_id,
+                "status": "idle",
+                "job_id": None,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            r.set(key, json.dumps(gpu_data))
+
+
+@app.on_event("startup")
+def startup_event():
+    initialize_gpus()
 
 
 @app.get("/health")
@@ -31,6 +50,7 @@ def submit_job(job: JobRequest):
         "job_id": job_id,
         "code": job.code,
         "status": "queued",
+        "gpu_id": None,
         "created_at": datetime.utcnow().isoformat(),
         "started_at": None,
         "finished_at": None,
@@ -69,18 +89,12 @@ def get_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     return json.loads(raw)
 
-@app.get("/gpu-status")
-def gpu_status():
-    raw = r.get("gpu:0")
-    if not raw:
-        return {
-            "gpu_id": 0,
-            "status": "unknown",
-            "job_id": None,
-        }
 
-    data = json.loads(raw)
-    return {
-        "gpu_id": 0,
-        **data,
-    }
+@app.get("/gpus")
+def list_gpus():
+    gpus = []
+    for gpu_id in range(GPU_COUNT):
+        raw = r.get(f"gpu:{gpu_id}")
+        if raw:
+            gpus.append(json.loads(raw))
+    return {"gpus": gpus}
