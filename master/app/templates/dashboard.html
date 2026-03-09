@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>GPU Cluster Dashboard</title>
+<style>
+body{
+    font-family:Arial;
+    background:#f5f5f5;
+    margin:40px;
+}
+
+.card{
+    background:white;
+    padding:20px;
+    margin-bottom:20px;
+    border-radius:10px;
+}
+
+h1{
+    margin-bottom:30px;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+th,td{
+    border-bottom:1px solid #ddd;
+    padding:10px;
+}
+
+.status-running{color:orange}
+.status-completed{color:green}
+.status-failed{color:red}
+.status-cancelled{color:gray}
+</style>
+</head>
+
+<body>
+
+<h1>GPU Job Scheduler Dashboard</h1>
+
+<div class="card">
+<h2>Cluster Status</h2>
+<pre id="cluster"></pre>
+</div>
+
+<div class="card">
+<h2>GPU Status</h2>
+<pre id="gpus"></pre>
+</div>
+
+<div class="card">
+<h2>Jobs</h2>
+<table id="jobs">
+<thead>
+<tr>
+<th>ID</th>
+<th>Status</th>
+<th>GPU</th>
+<th>Runtime</th>
+<th>Created</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+
+<script>
+
+async function loadData(){
+
+const cluster=await fetch('/cluster-status').then(r=>r.json())
+document.getElementById("cluster").innerText=
+JSON.stringify(cluster,null,2)
+
+const gpus=await fetch('/gpus').then(r=>r.json())
+document.getElementById("gpus").innerText=
+JSON.stringify(gpus,null,2)
+
+const jobs=await fetch('/jobs').then(r=>r.json())
+
+const table=document.querySelector("#jobs tbody")
+table.innerHTML=""
+
+jobs.jobs.forEach(job=>{
+
+const row=document.createElement("tr")
+
+row.innerHTML=`
+<td>${job.job_id.substring(0,8)}</td>
+<td class="status-${job.status}">${job.status}</td>
+<td>${job.gpu_id ?? "-"}</td>
+<td>${job.runtime}</td>
+<td>${job.created_at}</td>
+`
+
+table.appendChild(row)
+
+})
+
+}
+
+setInterval(loadData,2000)
+
+loadData()
+
+</script>
+
+</body>
+</html>

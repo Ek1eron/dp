@@ -5,7 +5,11 @@ import redis
 import uuid
 import json
 import os
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 
+templates = Jinja2Templates(directory="app/templates")
 app = FastAPI()
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -38,7 +42,13 @@ def initialize_gpus():
             }
             r.set(key, json.dumps(gpu_data))
 
-
+@app.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request}
+    )
+    
 @app.on_event("startup")
 def startup_event():
     initialize_gpus()
