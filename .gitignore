@@ -15,3 +15,5 @@ build/
 *.sqlite3
 *.db
 jobs/output/
+logs/*
+!logs/.gitkeep

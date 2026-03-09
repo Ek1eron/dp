@@ -147,6 +147,15 @@ def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, me
                     text=True,
                 )
                 stdout, stderr = process.communicate(timeout=10)
+                os.makedirs("/logs", exist_ok=True)
+                stdout_file = f"/logs/{job_id}.out"
+                stderr_file = f"/logs/{job_id}.err"
+                with open(stdout_file, "w") as f:
+                    f.write(stdout or "")
+
+                with open(stderr_file, "w") as f:
+                    f.write(stderr or "")
+                
                 update_job(
                     job_id,
                     {

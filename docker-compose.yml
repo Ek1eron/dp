@@ -8,10 +8,8 @@ services:
     build: ./master
     ports:
       - "8001:8001"
-    environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      GPU_COUNT: 1
+    env_file:
+      - .env
     depends_on:
       - redis
 
@@ -26,6 +24,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - jobs_data:/jobs
+      - ./logs:/logs
 
 volumes:
   jobs_data:
