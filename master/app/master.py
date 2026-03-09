@@ -68,3 +68,19 @@ def get_job(job_id: str):
     if not raw:
         raise HTTPException(status_code=404, detail="Job not found")
     return json.loads(raw)
+
+@app.get("/gpu-status")
+def gpu_status():
+    raw = r.get("gpu:0")
+    if not raw:
+        return {
+            "gpu_id": 0,
+            "status": "unknown",
+            "job_id": None,
+        }
+
+    data = json.loads(raw)
+    return {
+        "gpu_id": 0,
+        **data,
+    }
