@@ -65,21 +65,23 @@ def submit_job(job: JobRequest):
     job_id = str(uuid.uuid4())
 
     job_data = {
-        "job_id": job_id,
-        "code": job.code,
-        "runtime": job.runtime,
-        "image": RUNTIME_PROFILES[job.runtime],
-        "cpus": job.cpus,
-        "memory": job.memory,
-        "status": "queued",
-        "gpu_id": None,
-        "created_at": datetime.utcnow().isoformat(),
-        "started_at": None,
-        "finished_at": None,
-        "stdout": "",
-        "stderr": "",
-        "return_code": None,
-    }
+    "job_id": job_id,
+    "code": job.code,
+    "runtime": job.runtime,
+    "image": RUNTIME_PROFILES[job.runtime],
+    "cpus": job.cpus,
+    "memory": job.memory,
+    "status": "queued",
+    "gpu_id": None,
+    "container_name": None,
+    "cancel_requested": False,
+    "created_at": datetime.utcnow().isoformat(),
+    "started_at": None,
+    "finished_at": None,
+    "stdout": "",
+    "stderr": "",
+    "return_code": None,
+}
 
     r.setex(
     f"job:{job_id}",
@@ -205,3 +207,36 @@ def cleanup_jobs():
             removed += 1
 
     return {"removed_jobs": removed}
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    raw = r.get(f"job:{job_id}")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = json.loads(raw)
+
+    if job["status"] in ["completed", "failed", "cancelled"]:
+        return {
+            "job_id": job_id,
+            "status": job["status"],
+            "message": "Job is already finished",
+        }
+
+    job["cancel_requested"] = True
+
+    if job["status"] == "queued":
+        job["status"] = "cancelled"
+        job["finished_at"] = datetime.utcnow().isoformat()
+
+    r.setex(
+        f"job:{job_id}",
+        60 * 60 * 24,
+        json.dumps(job)
+    )
+
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "cancel_requested": True,
+    }

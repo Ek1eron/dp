@@ -25,7 +25,11 @@ def update_job(job_id: str, updates: dict):
     60 * 60 * 24,
     json.dumps(job)
 )
-
+def get_job(job_id: str):
+    raw = r.get(f"job:{job_id}")
+    if not raw:
+        return None
+    return json.loads(raw)
 
 def get_free_gpu():
     for gpu_id in range(GPU_COUNT):
@@ -74,15 +78,150 @@ def release_gpu(gpu_id: int):
 def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, memory: str):
     filename = f"{job_id}.py"
     worker_job_file = f"/jobs/{filename}"
+    container_name = f"job-{job_id}"
 
     update_job(
         job_id,
         {
             "status": "running",
             "gpu_id": gpu_id,
+            "container_name": container_name,
             "started_at": datetime.utcnow().isoformat(),
         },
     )
+
+    reserve_gpu_for_job(gpu_id, job_id)
+
+    try:
+        os.makedirs("/jobs", exist_ok=True)
+
+        with open(worker_job_file, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        process = subprocess.Popen(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--name",
+                container_name,
+                "--cpus",
+                str(cpus),
+                "--memory",
+                memory,
+                "--gpus",
+                f"device={gpu_id}",
+                "-v",
+                f"{JOB_VOLUME_NAME}:/workspace",
+                image,
+                "python",
+                f"/workspace/{filename}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        cancelled = False
+        start_time = time.time()
+        timeout_seconds = 120
+
+        while True:
+            if process.poll() is not None:
+                break
+
+            job = get_job(job_id)
+            if job and job.get("cancel_requested"):
+                subprocess.run(
+                    ["docker", "kill", container_name],
+                    capture_output=True,
+                    text=True,
+                )
+                cancelled = True
+                break
+
+            if time.time() - start_time > timeout_seconds:
+                subprocess.run(
+                    ["docker", "kill", container_name],
+                    capture_output=True,
+                    text=True,
+                )
+                stdout, stderr = process.communicate(timeout=10)
+                update_job(
+                    job_id,
+                    {
+                        "stdout": stdout or "",
+                        "stderr": (stderr or "") + "\nJob execution timed out",
+                        "return_code": -1,
+                        "status": "failed",
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "container_name": None,
+                    },
+                )
+                return
+
+            time.sleep(1)
+
+        stdout, stderr = process.communicate(timeout=10)
+
+        if cancelled:
+            update_job(
+                job_id,
+                {
+                    "stdout": stdout or "",
+                    "stderr": (stderr or "") + "\nJob was cancelled by user",
+                    "return_code": -1,
+                    "status": "cancelled",
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "container_name": None,
+                },
+            )
+            return
+
+        update_job(
+            job_id,
+            {
+                "stdout": stdout or "",
+                "stderr": stderr or "",
+                "return_code": process.returncode,
+                "status": "completed" if process.returncode == 0 else "failed",
+                "finished_at": datetime.utcnow().isoformat(),
+                "container_name": None,
+            },
+        )
+
+    except Exception as e:
+        update_job(
+            job_id,
+            {
+                "stdout": "",
+                "stderr": str(e),
+                "return_code": -1,
+                "status": "failed",
+                "finished_at": datetime.utcnow().isoformat(),
+                "container_name": None,
+            },
+        )
+
+    finally:
+        release_gpu(gpu_id)
+        if os.path.exists(worker_job_file):
+            os.remove(worker_job_file)
+    filename = f"{job_id}.py"
+    worker_job_file = f"/jobs/{filename}"
+    container_name = f"job-{job_id}"
+    filename = f"{job_id}.py"
+    worker_job_file = f"/jobs/{filename}"
+
+    update_job(
+    job_id,
+    {
+        "status": "running",
+        "gpu_id": gpu_id,
+        "container_name": container_name,
+        "started_at": datetime.utcnow().isoformat(),
+    },
+)
 
     reserve_gpu_for_job(gpu_id, job_id)
 
@@ -172,21 +311,28 @@ def main():
                 continue
 
             job = json.loads(raw)
-
+            if job.get("status") == "cancelled" or job.get("cancel_requested"):
+                continue
             gpu_id = None
             while gpu_id is None:
+                current_job = get_job(job_id)
+                if not current_job or current_job.get("status") == "cancelled" or current_job.get("cancel_requested"):
+                    break
+
                 gpu_id = get_free_gpu()
                 if gpu_id is None:
                     time.sleep(1)
 
+            if gpu_id is None:
+                continue
+
             execute_job(
-                job_id=job_id,
-                code=job["code"],
-                gpu_id=gpu_id,
-                image=job["image"],
-                cpus=job.get("cpus", 1.0),
-                memory=job.get("memory", "2g"),
-            )
+            job_id=job_id,
+            code=job["code"],
+            gpu_id=gpu_id,
+            image=job["image"],
+            cpus=job.get("cpus", 1.0),
+            memory=job.get("memory", "2g"))
 
         except Exception as e:
             print(f"Worker loop error: {e}")
