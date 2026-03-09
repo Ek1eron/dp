@@ -1,9 +1,9 @@
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir fastapi uvicorn
 
 COPY app ./app
 
