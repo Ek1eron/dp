@@ -1,12 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import subprocess
 import os
 import uuid
+import threading
+from datetime import datetime
 
 app = FastAPI()
 
 JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
+jobs_store = {}
 
 
 class JobRequest(BaseModel):
@@ -54,17 +57,18 @@ def gpu_info():
     return info
 
 
-@app.post("/run-job")
-def run_job(job: JobRequest):
-    os.makedirs("/jobs", exist_ok=True)
-
-    job_id = str(uuid.uuid4())
+def execute_job(job_id: str, code: str):
     filename = f"{job_id}.py"
     worker_job_file = f"/jobs/{filename}"
 
+    jobs_store[job_id]["status"] = "running"
+    jobs_store[job_id]["started_at"] = datetime.utcnow().isoformat()
+
     try:
+        os.makedirs("/jobs", exist_ok=True)
+
         with open(worker_job_file, "w", encoding="utf-8") as f:
-            f.write(job.code)
+            f.write(code)
 
         result = subprocess.run(
             [
@@ -84,27 +88,61 @@ def run_job(job: JobRequest):
             timeout=120,
         )
 
-        return {
-            "job_id": job_id,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "return_code": result.returncode,
-        }
+        jobs_store[job_id]["stdout"] = result.stdout
+        jobs_store[job_id]["stderr"] = result.stderr
+        jobs_store[job_id]["return_code"] = result.returncode
+        jobs_store[job_id]["status"] = "completed" if result.returncode == 0 else "failed"
 
     except subprocess.TimeoutExpired:
-        return {
-            "job_id": job_id,
-            "stdout": "",
-            "stderr": "Job execution timed out",
-            "return_code": -1,
-        }
+        jobs_store[job_id]["stdout"] = ""
+        jobs_store[job_id]["stderr"] = "Job execution timed out"
+        jobs_store[job_id]["return_code"] = -1
+        jobs_store[job_id]["status"] = "failed"
+
     except Exception as e:
-        return {
-            "job_id": job_id,
-            "stdout": "",
-            "stderr": str(e),
-            "return_code": -1,
-        }
+        jobs_store[job_id]["stdout"] = ""
+        jobs_store[job_id]["stderr"] = str(e)
+        jobs_store[job_id]["return_code"] = -1
+        jobs_store[job_id]["status"] = "failed"
+
     finally:
+        jobs_store[job_id]["finished_at"] = datetime.utcnow().isoformat()
         if os.path.exists(worker_job_file):
             os.remove(worker_job_file)
+
+
+@app.post("/run-job")
+def run_job(job: JobRequest):
+    job_id = str(uuid.uuid4())
+
+    jobs_store[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "created_at": datetime.utcnow().isoformat(),
+        "started_at": None,
+        "finished_at": None,
+        "stdout": "",
+        "stderr": "",
+        "return_code": None,
+    }
+
+    thread = threading.Thread(target=execute_job, args=(job_id, job.code), daemon=True)
+    thread.start()
+
+    return {
+        "job_id": job_id,
+        "status": "queued",
+    }
+
+
+@app.get("/jobs")
+def list_jobs():
+    return {"jobs": list(jobs_store.values())}
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    job = jobs_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
