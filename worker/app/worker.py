@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import subprocess
-import tempfile
 import os
+import uuid
 
 app = FastAPI()
+
+JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
 
 
 class JobRequest(BaseModel):
@@ -54,21 +56,36 @@ def gpu_info():
 
 @app.post("/run-job")
 def run_job(job: JobRequest):
-    temp_file_path = None
+    os.makedirs("/jobs", exist_ok=True)
+
+    job_id = str(uuid.uuid4())
+    filename = f"{job_id}.py"
+    worker_job_file = f"/jobs/{filename}"
 
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
-            temp_file.write(job.code)
-            temp_file_path = temp_file.name
+        with open(worker_job_file, "w", encoding="utf-8") as f:
+            f.write(job.code)
 
         result = subprocess.run(
-            ["python", temp_file_path],
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--gpus",
+                "all",
+                "-v",
+                f"{JOB_VOLUME_NAME}:/workspace",
+                "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
+                "python",
+                f"/workspace/{filename}",
+            ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
         )
 
         return {
+            "job_id": job_id,
             "stdout": result.stdout,
             "stderr": result.stderr,
             "return_code": result.returncode,
@@ -76,16 +93,18 @@ def run_job(job: JobRequest):
 
     except subprocess.TimeoutExpired:
         return {
+            "job_id": job_id,
             "stdout": "",
             "stderr": "Job execution timed out",
             "return_code": -1,
         }
     except Exception as e:
         return {
+            "job_id": job_id,
             "stdout": "",
             "stderr": str(e),
             "return_code": -1,
         }
     finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+        if os.path.exists(worker_job_file):
+            os.remove(worker_job_file)
