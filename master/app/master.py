@@ -98,3 +98,64 @@ def list_gpus():
         if raw:
             gpus.append(json.loads(raw))
     return {"gpus": gpus}
+
+@app.get("/cluster-status")
+def cluster_status():
+    gpu_total = 0
+    gpu_idle = 0
+    gpu_busy = 0
+
+    for gpu_id in range(GPU_COUNT):
+        raw = r.get(f"gpu:{gpu_id}")
+        if not raw:
+            continue
+
+        gpu_total += 1
+        gpu = json.loads(raw)
+
+        if gpu["status"] == "idle":
+            gpu_idle += 1
+        elif gpu["status"] == "busy":
+            gpu_busy += 1
+
+    job_keys = r.keys("job:*")
+
+    queued = 0
+    running = 0
+    completed = 0
+    failed = 0
+
+    for key in job_keys:
+        raw = r.get(key)
+        if not raw:
+            continue
+
+        job = json.loads(raw)
+        status = job.get("status")
+
+        if status == "queued":
+            queued += 1
+        elif status == "running":
+            running += 1
+        elif status == "completed":
+            completed += 1
+        elif status == "failed":
+            failed += 1
+
+    queue_length = r.llen("job_queue")
+
+    return {
+        "gpu_summary": {
+            "total": gpu_total,
+            "idle": gpu_idle,
+            "busy": gpu_busy,
+        },
+        "job_summary": {
+            "queued": queued,
+            "running": running,
+            "completed": completed,
+            "failed": failed,
+            "total": queued + running + completed + failed,
+        },
+        "queue_length": queue_length,
+    }
