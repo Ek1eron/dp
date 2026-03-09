@@ -1,7 +1,14 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 import subprocess
+import tempfile
+import os
 
 app = FastAPI()
+
+
+class JobRequest(BaseModel):
+    code: str
 
 
 @app.get("/health")
@@ -43,3 +50,42 @@ def gpu_info():
         info["errors"].append(f"torch error: {e}")
 
     return info
+
+
+@app.post("/run-job")
+def run_job(job: JobRequest):
+    temp_file_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
+            temp_file.write(job.code)
+            temp_file_path = temp_file.name
+
+        result = subprocess.run(
+            ["python", temp_file_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "return_code": result.returncode,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "stdout": "",
+            "stderr": "Job execution timed out",
+            "return_code": -1,
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "return_code": -1,
+        }
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
