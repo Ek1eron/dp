@@ -1,8 +1,26 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  master:
+    build: ./master
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+
   worker:
     build: ./worker
-    ports:
-      - "8000:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - jobs_data:/jobs
