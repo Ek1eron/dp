@@ -2,12 +2,15 @@ import subprocess
 import os
 import time
 import json
+import threading
 from datetime import datetime
 import redis
-
+import sys
+sys.stdout.reconfigure(line_buffering=True)
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 GPU_COUNT = int(os.getenv("GPU_COUNT", "1"))
+JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT_SECONDS", "300"))
 JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -52,7 +55,7 @@ def get_free_gpu() -> int | None:
                         gpu["job_id"] = None
                         gpu["updated_at"] = datetime.utcnow().isoformat()
                         pipe.set(key, json.dumps(gpu))
-                        pipe.execute() 
+                        pipe.execute()
                         return gpu_id
 
                     except redis.WatchError:
@@ -88,6 +91,39 @@ def release_gpu(gpu_id: int):
     r.set(key, json.dumps(gpu))
 
 
+def check_real_gpu_count():
+    try:
+        result = subprocess.run(
+            [
+                "docker", "run", "--rm", "--gpus", "all",
+                "nvidia/cuda:12.3.2-base-ubuntu22.04",
+                "nvidia-smi", "--query-gpu=name", "--format=csv,noheader",
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+        lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
+        real_count = len(lines)
+        print(f"[GPU] Detected GPUs: {real_count}")
+        for i, name in enumerate(lines):
+            print(f"[GPU]   [{i}] {name}")
+
+        if real_count == 0:
+            print("[GPU] WARNING: No GPUs detected! Check NVIDIA drivers and Container Toolkit.")
+        elif real_count < GPU_COUNT:
+            print(f"[GPU] WARNING: GPU_COUNT={GPU_COUNT} but only {real_count} GPU(s) found. "
+                  f"Update GPU_COUNT in .env to avoid errors.")
+        elif real_count > GPU_COUNT:
+            print(f"[GPU] INFO: {real_count} GPUs available but GPU_COUNT={GPU_COUNT}. "
+                  f"Only {GPU_COUNT} GPU(s) will be used by the scheduler.")
+        else:
+            print(f"[GPU] OK: GPU_COUNT={GPU_COUNT} matches real GPU count.")
+
+        return real_count
+    except Exception as e:
+        print(f"[GPU] Could not detect GPU count: {e}")
+        return None
+
+
 def recover_stale_gpus():
     print("[Recovery] Checking for stale GPU reservations...")
     for gpu_id in range(GPU_COUNT):
@@ -101,8 +137,8 @@ def recover_stale_gpus():
 
         job_id = gpu.get("job_id")
         container_name = f"job-{job_id}" if job_id else None
-
         container_running = False
+
         if container_name:
             result = subprocess.run(
                 ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
@@ -111,9 +147,8 @@ def recover_stale_gpus():
             container_running = result.stdout.strip() == "true"
 
         if not container_running:
-            print(f"[Recovery] GPU {gpu_id} was stuck as busy (job={job_id}). Releasing.")
+            print(f"[Recovery] GPU {gpu_id} stuck as busy (job={job_id}). Releasing.")
             release_gpu(gpu_id)
-
             if job_id:
                 job = get_job(job_id)
                 if job and job.get("status") == "running":
@@ -160,7 +195,6 @@ def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, me
             text=True,
         )
 
-        timeout_seconds = 120
         start_time = time.time()
         cancelled = False
 
@@ -174,12 +208,12 @@ def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, me
                 cancelled = True
                 break
 
-            if time.time() - start_time > timeout_seconds:
+            if time.time() - start_time > JOB_TIMEOUT:
                 subprocess.run(["docker", "kill", container_name], capture_output=True)
                 stdout, stderr = process.communicate(timeout=10)
                 update_job(job_id, {
                     "stdout": stdout or "",
-                    "stderr": (stderr or "") + "\nJob execution timed out",
+                    "stderr": (stderr or "") + f"\nJob timed out after {JOB_TIMEOUT}s",
                     "return_code": -1,
                     "status": "failed",
                     "finished_at": datetime.utcnow().isoformat(),
@@ -227,10 +261,10 @@ def execute_job(job_id: str, code: str, gpu_id: int, image: str, cpus: float, me
             os.remove(worker_job_file)
 
 
-
 def main():
-    print(f"Worker started. GPU_COUNT={GPU_COUNT}. Waiting for jobs...")
+    print(f"Worker started. GPU_COUNT={GPU_COUNT}, JOB_TIMEOUT={JOB_TIMEOUT}s")
 
+    check_real_gpu_count()
     recover_stale_gpus()
 
     while True:
@@ -248,7 +282,7 @@ def main():
 
             if job.get("status") == "cancelled" or job.get("cancel_requested"):
                 continue
-            
+        
             gpu_id = None
             while gpu_id is None:
                 current_job = get_job(job_id)
@@ -261,15 +295,22 @@ def main():
             if gpu_id is None:
                 continue
 
-            print(f"[Worker] Running job {job_id} on GPU {gpu_id}")
-            execute_job(
-                job_id=job_id,
-                code=job["code"],
-                gpu_id=gpu_id,
-                image=job["image"],
-                cpus=job.get("cpus", 1.0),
-                memory=job.get("memory", "2g"),
+            t = threading.Thread(
+                target=execute_job,
+                args=(
+                    job_id,
+                    job["code"],
+                    gpu_id,
+                    job["image"],
+                    job.get("cpus", 1.0),
+                    job.get("memory", "2g"),
+                ),
+                daemon=True,
+                name=f"job-{job_id[:8]}",
             )
+            t.start()
+            print(f"[Worker] Started job {job_id[:8]} on GPU {gpu_id} "
+                  f"(active threads: {threading.active_count()})")
 
         except Exception as e:
             print(f"[Worker] Loop error: {e}")
