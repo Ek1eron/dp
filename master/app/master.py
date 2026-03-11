@@ -1,20 +1,32 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, field_validator
-from datetime import datetime
-import redis
+import logging
+import os
 import uuid
 import json
-import os
+from datetime import datetime
+
+import redis
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi import Request
+from pydantic import BaseModel, field_validator
+
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("master")
+
 
 templates = Jinja2Templates(directory="app/templates")
 app = FastAPI(title="GPU Job Scheduler", version="1.0.0")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-GPU_COUNT = int(os.getenv("GPU_COUNT", "1"))
+GPU_COUNT  = int(os.getenv("GPU_COUNT", "1"))
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
@@ -56,7 +68,7 @@ class JobRequest(BaseModel):
 
 
 def initialize_gpus():
-
+    initialized = 0
     for gpu_id in range(GPU_COUNT):
         key = f"gpu:{gpu_id}"
         if not r.get(key):
@@ -67,8 +79,12 @@ def initialize_gpus():
                 "updated_at": datetime.utcnow().isoformat(),
             }
             r.set(key, json.dumps(gpu_data))
-            print(f"[Master] Initialized GPU {gpu_id}")
+            initialized += 1
 
+    if initialized:
+        log.info(f"Initialized {initialized} GPU slot(s) in Redis")
+    else:
+        log.info("GPU slots already exist in Redis — skipping init")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -78,6 +94,11 @@ def dashboard(request: Request):
 
 @app.on_event("startup")
 def startup_event():
+    log.info("=" * 50)
+    log.info(f"GPU Job Scheduler Master starting")
+    log.info(f"GPU_COUNT={GPU_COUNT} | REDIS={REDIS_HOST}:{REDIS_PORT}")
+    log.info(f"Runtimes: {list(RUNTIME_PROFILES.keys())}")
+    log.info("=" * 50)
     initialize_gpus()
 
 
@@ -97,10 +118,7 @@ def health():
 
 @app.get("/runtimes")
 def list_runtimes():
-    """Повертає список доступних runtime-профілів з їх Docker-образами."""
-    return {
-        "runtimes": {name: image for name, image in RUNTIME_PROFILES.items()}
-    }
+    return {"runtimes": {name: image for name, image in RUNTIME_PROFILES.items()}}
 
 
 @app.post("/submit-job", status_code=201)
@@ -134,6 +152,8 @@ def submit_job(job: JobRequest):
     r.setex(f"job:{job_id}", 60 * 60 * 24, json.dumps(job_data))
     r.rpush("job_queue", job_id)
 
+    log.info(f"Job {job_id[:8]} queued | runtime={job.runtime} cpus={job.cpus} mem={job.memory}")
+
     return {
         "job_id": job_id,
         "status": "queued",
@@ -144,7 +164,6 @@ def submit_job(job: JobRequest):
 
 @app.get("/jobs")
 def list_jobs(status: str = None):
-
     keys = r.keys("job:*")
     jobs = []
     for key in keys:
@@ -188,6 +207,8 @@ def cancel_job(job_id: str):
 
     r.setex(f"job:{job_id}", 60 * 60 * 24, json.dumps(job))
 
+    log.info(f"Job {job_id[:8]} cancel requested (was: {job.get('status')})")
+
     return {
         "job_id": job_id,
         "status": job["status"],
@@ -225,16 +246,11 @@ def cluster_status():
         if not raw:
             continue
         status = json.loads(raw).get("status")
-        if status == "queued":
-            queued += 1
-        elif status == "running":
-            running += 1
-        elif status == "completed":
-            completed += 1
-        elif status == "failed":
-            failed += 1
-        elif status == "cancelled":
-            cancelled += 1
+        if status == "queued":       queued += 1
+        elif status == "running":    running += 1
+        elif status == "completed":  completed += 1
+        elif status == "failed":     failed += 1
+        elif status == "cancelled":  cancelled += 1
 
     return {
         "gpu_summary": {
@@ -266,4 +282,6 @@ def cleanup_jobs():
         if job["status"] in ["completed", "failed", "cancelled"]:
             r.delete(key)
             removed += 1
+
+    log.info(f"Cleanup: removed {removed} finished job(s)")
     return {"removed_jobs": removed}

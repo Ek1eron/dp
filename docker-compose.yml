@@ -15,6 +15,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       GPU_COUNT: ${GPU_COUNT:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       - redis
     restart: unless-stopped
@@ -26,6 +27,7 @@ services:
       REDIS_PORT: 6379
       GPU_COUNT: ${GPU_COUNT:-1}
       JOB_TIMEOUT_SECONDS: ${JOB_TIMEOUT_SECONDS:-300}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       - redis
     volumes:
