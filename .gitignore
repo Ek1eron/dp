@@ -16,4 +16,4 @@ build/
 *.db
 jobs/output/
 logs/*
-!logs/.gitkeep
+!logs/.gitkeepvenv/
