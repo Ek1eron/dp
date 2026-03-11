@@ -9,7 +9,9 @@ env/
 .vscode/
 *.log
 .env
-.env.*
+.env.local
+.env.production
+.env.staging
 dist/
 build/
 *.sqlite3
