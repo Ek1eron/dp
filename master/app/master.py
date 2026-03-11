@@ -19,14 +19,9 @@ GPU_COUNT = int(os.getenv("GPU_COUNT", "1"))
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 RUNTIME_PROFILES = {
-    # PyTorch + CUDA 12.1
     "pytorch-cu121": "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
-    # PyTorch + CUDA 11.8 — для старіших моделей/бібліотек
     "pytorch-cu118": "pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime",
-    # Чистий CUDA без фреймворків — для власного C++/CUDA коду
-    "cuda-base": "nvidia/cuda:12.3.2-base-ubuntu22.04",
-    # TensorFlow з GPU підтримкою
-    "tensorflow": "tensorflow/tensorflow:2.15.0-gpu",
+    "tensorflow":    "tensorflow/tensorflow:2.15.0-gpu",
 }
 
 VALID_MEMORY_SUFFIXES = ("m", "g", "mb", "gb")
