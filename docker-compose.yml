@@ -3,29 +3,36 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
 
   master:
     build: ./master
     ports:
       - "8001:8001"
-    env_file:
-      - .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       - redis
+    restart: unless-stopped
 
   worker:
     build: ./worker
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      GPU_COUNT: 4
+      GPU_COUNT: ${GPU_COUNT:-1}
     depends_on:
       - redis
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - jobs_data:/jobs
       - ./logs:/logs
+    restart: unless-stopped
 
 volumes:
   jobs_data:
     name: gpu-job-scheduler-jobs
+  redis_data:

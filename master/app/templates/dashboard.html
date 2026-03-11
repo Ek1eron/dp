@@ -1,112 +1,350 @@
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 <head>
-<title>GPU Cluster Dashboard</title>
+<meta charset="UTF-8">
+<title>GPU Job Scheduler</title>
 <style>
-body{
-    font-family:Arial;
-    background:#f5f5f5;
-    margin:40px;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: #0f1117;
+  color: #e0e0e0;
+  padding: 24px;
 }
 
-.card{
-    background:white;
-    padding:20px;
-    margin-bottom:20px;
-    border-radius:10px;
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-h1{
-    margin-bottom:30px;
+h1 span.dot {
+  width: 10px; height: 10px;
+  background: #22c55e;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 2s infinite;
 }
 
-table{
-    width:100%;
-    border-collapse:collapse;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-th,td{
-    border-bottom:1px solid #ddd;
-    padding:10px;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-.status-running{color:orange}
-.status-completed{color:green}
-.status-failed{color:red}
-.status-cancelled{color:gray}
+.stat-card {
+  background: #1e2130;
+  border-radius: 10px;
+  padding: 20px;
+  border: 1px solid #2a2d3e;
+}
+
+.stat-card .label {
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.stat-card .value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.stat-card .value.green { color: #22c55e; }
+.stat-card .value.orange { color: #f59e0b; }
+.stat-card .value.red { color: #ef4444; }
+
+.card {
+  background: #1e2130;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #2a2d3e;
+}
+
+.card h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #c0c0c0;
+}
+
+.gpu-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gpu-chip {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 2px solid transparent;
+}
+
+.gpu-chip.idle {
+  background: #14532d22;
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.gpu-chip.busy {
+  background: #92400e22;
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+th {
+  text-align: left;
+  padding: 10px 12px;
+  color: #888;
+  font-weight: 500;
+  border-bottom: 1px solid #2a2d3e;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1a1d2a;
+  font-family: monospace;
+}
+
+tr:last-child td { border-bottom: none; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge.queued   { background: #1e3a5f; color: #60a5fa; }
+.badge.running  { background: #451a03; color: #f59e0b; }
+.badge.completed{ background: #14532d; color: #22c55e; }
+.badge.failed   { background: #450a0a; color: #ef4444; }
+.badge.cancelled{ background: #1c1c1c; color: #888; }
+
+.submit-area {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+textarea {
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 120px;
+}
+
+select, input {
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+button {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+button:hover { background: #2563eb; }
+button.danger { background: #ef4444; }
+button.danger:hover { background: #dc2626; }
+
+#submit-result {
+  font-size: 0.8rem;
+  color: #22c55e;
+  font-family: monospace;
+}
+
+.refresh-note {
+  font-size: 0.75rem;
+  color: #555;
+  margin-top: 8px;
+}
 </style>
 </head>
-
 <body>
 
-<h1>GPU Job Scheduler Dashboard</h1>
+<h1><span class="dot"></span> GPU Job Scheduler</h1>
 
-<div class="card">
-<h2>Cluster Status</h2>
-<pre id="cluster"></pre>
+<div class="grid" id="stats">
+  <div class="stat-card"><div class="label">GPU Total</div><div class="value" id="s-gpu-total">—</div></div>
+  <div class="stat-card"><div class="label">GPU Idle</div><div class="value green" id="s-gpu-idle">—</div></div>
+  <div class="stat-card"><div class="label">GPU Busy</div><div class="value orange" id="s-gpu-busy">—</div></div>
+  <div class="stat-card"><div class="label">In Queue</div><div class="value" id="s-queued">—</div></div>
+  <div class="stat-card"><div class="label">Running</div><div class="value orange" id="s-running">—</div></div>
+  <div class="stat-card"><div class="label">Completed</div><div class="value green" id="s-completed">—</div></div>
 </div>
 
 <div class="card">
-<h2>GPU Status</h2>
-<pre id="gpus"></pre>
+  <h2>GPU Status</h2>
+  <div class="gpu-grid" id="gpu-chips">Loading...</div>
 </div>
 
 <div class="card">
-<h2>Jobs</h2>
-<table id="jobs">
-<thead>
-<tr>
-<th>ID</th>
-<th>Status</th>
-<th>GPU</th>
-<th>Runtime</th>
-<th>Created</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
+  <h2>Submit Job</h2>
+  <div class="submit-area">
+    <textarea id="job-code" placeholder="# Python code here&#10;import torch&#10;print(torch.cuda.is_available())"></textarea>
+    <div class="row">
+      <select id="job-runtime"><option value="">Loading runtimes...</option></select>
+      <input id="job-cpus" type="number" value="1" min="0.1" max="8" step="0.1" placeholder="CPUs" style="width:90px">
+      <input id="job-memory" type="text" value="2g" placeholder="Memory (2g)" style="width:100px">
+      <button onclick="submitJob()">▶ Submit Job</button>
+    </div>
+    <div id="submit-result"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Jobs <span class="refresh-note">оновлюється кожні 2 сек</span></h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Job ID</th>
+        <th>Status</th>
+        <th>GPU</th>
+        <th>Runtime</th>
+        <th>Created</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="jobs-body"></tbody>
+  </table>
 </div>
 
 <script>
-
-async function loadData(){
-
-const cluster=await fetch('/cluster-status').then(r=>r.json())
-document.getElementById("cluster").innerText=
-JSON.stringify(cluster,null,2)
-
-const gpus=await fetch('/gpus').then(r=>r.json())
-document.getElementById("gpus").innerText=
-JSON.stringify(gpus,null,2)
-
-const jobs=await fetch('/jobs').then(r=>r.json())
-
-const table=document.querySelector("#jobs tbody")
-table.innerHTML=""
-
-jobs.jobs.forEach(job=>{
-
-const row=document.createElement("tr")
-
-row.innerHTML=`
-<td>${job.job_id.substring(0,8)}</td>
-<td class="status-${job.status}">${job.status}</td>
-<td>${job.gpu_id ?? "-"}</td>
-<td>${job.runtime}</td>
-<td>${job.created_at}</td>
-`
-
-table.appendChild(row)
-
-})
-
+async function loadRuntimes() {
+  const data = await fetch('/runtimes').then(r => r.json());
+  const sel = document.getElementById('job-runtime');
+  sel.innerHTML = '';
+  for (const [name, image] of Object.entries(data.runtimes)) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `${name}  (${image.split(':')[0].split('/').pop()})`;
+    sel.appendChild(opt);
+  }
 }
 
-setInterval(loadData,2000)
+async function loadData() {
+  try {
+    const cluster = await fetch('/cluster-status').then(r => r.json());
+    document.getElementById('s-gpu-total').textContent = cluster.gpu_summary.total;
+    document.getElementById('s-gpu-idle').textContent = cluster.gpu_summary.idle;
+    document.getElementById('s-gpu-busy').textContent = cluster.gpu_summary.busy;
+    document.getElementById('s-queued').textContent = cluster.job_summary.queued;
+    document.getElementById('s-running').textContent = cluster.job_summary.running;
+    document.getElementById('s-completed').textContent = cluster.job_summary.completed;
 
-loadData()
+    const gpus = await fetch('/gpus').then(r => r.json());
+    const chips = document.getElementById('gpu-chips');
+    chips.innerHTML = '';
+    gpus.gpus.forEach(g => {
+      const chip = document.createElement('div');
+      chip.className = `gpu-chip ${g.status}`;
+      chip.textContent = `GPU ${g.gpu_id}  ${g.status.toUpperCase()}`;
+      if (g.job_id) chip.title = `Job: ${g.job_id}`;
+      chips.appendChild(chip);
+    });
 
+    const jobs = await fetch('/jobs').then(r => r.json());
+    const tbody = document.getElementById('jobs-body');
+    tbody.innerHTML = '';
+    jobs.jobs.forEach(job => {
+      const tr = document.createElement('tr');
+      const created = new Date(job.created_at).toLocaleTimeString();
+      tr.innerHTML = `
+        <td>${job.job_id.substring(0, 8)}…</td>
+        <td><span class="badge ${job.status}">${job.status}</span></td>
+        <td>${job.gpu_id ?? '—'}</td>
+        <td>${job.runtime}</td>
+        <td>${created}</td>
+        <td>${['queued','running'].includes(job.status)
+          ? `<button class="danger" onclick="cancelJob('${job.job_id}')">Cancel</button>`
+          : ''}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    console.error('Load error:', e);
+  }
+}
+
+async function submitJob() {
+  const code = document.getElementById('job-code').value;
+  const runtime = document.getElementById('job-runtime').value;
+  const cpus = parseFloat(document.getElementById('job-cpus').value);
+  const memory = document.getElementById('job-memory').value;
+
+  const res = await fetch('/submit-job', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ code, runtime, cpus, memory })
+  });
+
+  const data = await res.json();
+  const el = document.getElementById('submit-result');
+  if (res.ok) {
+    el.style.color = '#22c55e';
+    el.textContent = `✓ Job submitted: ${data.job_id}`;
+  } else {
+    el.style.color = '#ef4444';
+    el.textContent = `✗ Error: ${data.detail}`;
+  }
+  loadData();
+}
+
+async function cancelJob(jobId) {
+  await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
+  loadData();
+}
+
+loadRuntimes();
+loadData();
+setInterval(loadData, 2000);
 </script>
 
 </body>
-</html>
+</html
