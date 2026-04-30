@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <title>GPU Job Scheduler</title>
+
+<!-- Monaco editor loader -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -14,245 +18,182 @@ body {
 }
 
 h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 24px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  font-size: 1.5rem; font-weight: 600; color: #fff;
+  margin-bottom: 24px; display: flex; align-items: center; gap: 10px;
 }
-
 h1 span.dot {
-  width: 10px; height: 10px;
-  background: #22c55e;
-  border-radius: 50%;
-  display: inline-block;
-  animation: pulse 2s infinite;
+  width: 10px; height: 10px; background: #22c55e; border-radius: 50%;
+  display: inline-block; animation: pulse 2s infinite;
 }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
+.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.topbar a { color:#60a5fa; text-decoration:none; font-size:.85rem; }
+.topbar a:hover { text-decoration:underline; }
 
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+  gap: 16px; margin-bottom: 24px;
 }
-
-.stat-card {
-  background: #1e2130;
-  border-radius: 10px;
-  padding: 20px;
-  border: 1px solid #2a2d3e;
-}
-
-.stat-card .label {
-  font-size: 0.75rem;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 8px;
-}
-
-.stat-card .value { font-size: 2rem; font-weight: 700; color: #fff; }
+.stat-card { background: #1e2130; border-radius: 10px; padding: 20px; border: 1px solid #2a2d3e; }
+.stat-card .label { font-size:.75rem; color:#888; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+.stat-card .value { font-size:2rem; font-weight:700; color:#fff; }
 .stat-card .value.green  { color: #22c55e; }
 .stat-card .value.orange { color: #f59e0b; }
 
-.card {
-  background: #1e2130;
-  border-radius: 10px;
-  padding: 20px;
-  margin-bottom: 20px;
-  border: 1px solid #2a2d3e;
+.card { background: #1e2130; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2d3e; }
+.card h2 { font-size:1rem; font-weight:600; margin-bottom:16px; color:#c0c0c0; }
+
+.gpu-grid { display:flex; gap:12px; flex-wrap:wrap; }
+.gpu-chip { padding:10px 18px; border-radius:8px; font-size:.85rem; font-weight:600; border:2px solid transparent; }
+.gpu-chip.idle { background:#14532d22; border-color:#22c55e; color:#22c55e; }
+.gpu-chip.busy { background:#92400e22; border-color:#f59e0b; color:#f59e0b; }
+
+table { width:100%; border-collapse:collapse; font-size:.85rem; }
+th { text-align:left; padding:10px 12px; color:#888; font-weight:500; border-bottom:1px solid #2a2d3e; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; }
+td { padding:10px 12px; border-bottom:1px solid #1a1d2a; font-family:monospace; }
+tr:last-child td { border-bottom:none; }
+tbody tr { cursor:pointer; }
+tbody tr:hover { background:#191c27; }
+tbody tr.active-row { background:#1a2235; }
+
+.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:.75rem; font-weight:600; }
+.badge.queued    { background:#1e3a5f; color:#60a5fa; }
+.badge.running   { background:#451a03; color:#f59e0b; }
+.badge.completed { background:#14532d; color:#22c55e; }
+.badge.failed    { background:#450a0a; color:#ef4444; }
+.badge.cancelled { background:#1c1c1c; color:#888; }
+
+.submit-area { display:flex; flex-direction:column; gap:12px; }
+
+.mode-tabs { display:flex; gap:4px; margin-bottom:4px; }
+.mode-tab {
+  background:transparent; border:1px solid #2a2d3e; border-radius:6px;
+  color:#888; padding:6px 14px; font-size:.8rem; font-weight:600; cursor:pointer; transition:.15s;
 }
+.mode-tab.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+.mode-tab:hover:not(.active) { background:#2a2d3e; color:#ccc; }
 
-.card h2 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #c0c0c0;
-}
-
-.gpu-grid { display: flex; gap: 12px; flex-wrap: wrap; }
-
-.gpu-chip {
-  padding: 10px 18px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  border: 2px solid transparent;
-}
-
-.gpu-chip.idle { background: #14532d22; border-color: #22c55e; color: #22c55e; }
-.gpu-chip.busy { background: #92400e22; border-color: #f59e0b; color: #f59e0b; }
-
-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-
-th {
-  text-align: left;
-  padding: 10px 12px;
-  color: #888;
-  font-weight: 500;
-  border-bottom: 1px solid #2a2d3e;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-td {
-  padding: 10px 12px;
-  border-bottom: 1px solid #1a1d2a;
-  font-family: monospace;
-}
-
-tr:last-child td { border-bottom: none; }
-tbody tr { cursor: pointer; }
-tbody tr:hover { background: #191c27; }
-tbody tr.active-row { background: #1a2235; }
-
-.badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.badge.queued    { background: #1e3a5f; color: #60a5fa; }
-.badge.running   { background: #451a03; color: #f59e0b; }
-.badge.completed { background: #14532d; color: #22c55e; }
-.badge.failed    { background: #450a0a; color: #ef4444; }
-.badge.cancelled { background: #1c1c1c; color: #888; }
-
-.submit-area { display: flex; flex-direction: column; gap: 12px; }
+.mode-panel { display:none; }
+.mode-panel.active { display:block; }
 
 textarea {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  color: #e0e0e0;
-  padding: 12px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
-  resize: vertical;
-  min-height: 130px;
+  width:100%; background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
+  color:#e0e0e0; padding:12px; font-family:'Courier New',monospace; font-size:.85rem;
+  resize:vertical; min-height:80px;
+}
+select, input[type=text], input[type=number], input[type=url], input[type=password] {
+  background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
+  color:#e0e0e0; padding:8px 12px; font-size:.85rem;
+}
+input[type=file] {
+  background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
+  color:#e0e0e0; padding:8px 12px; font-size:.85rem; cursor:pointer; width:100%;
+}
+input[type=file]::file-selector-button {
+  background:#2a2d3e; border:none; color:#ccc; padding:4px 10px;
+  border-radius:4px; cursor:pointer; margin-right:10px; font-size:.8rem;
 }
 
-select, input {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  color: #e0e0e0;
-  padding: 8px 12px;
-  font-size: 0.85rem;
+#editor-container {
+  height:280px; border:1px solid #2a2d3e; border-radius:8px; overflow:hidden;
 }
 
-.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.field-group { display:flex; flex-direction:column; gap:4px; }
+.field-label { font-size:.72rem; color:#666; text-transform:uppercase; letter-spacing:.05em; }
+.hint { font-size:.7rem; color:#555; }
 
 button {
-  background: #3b82f6;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
+  background:#3b82f6; color:#fff; border:none; border-radius:8px;
+  padding:10px 20px; font-size:.9rem; font-weight:600; cursor:pointer; transition:.2s;
 }
+button:hover        { background:#2563eb; }
+button.danger       { background:#ef4444; }
+button.danger:hover { background:#dc2626; }
+button.secondary    { background:#2a2d3e; }
+button.secondary:hover { background:#3a3d4e; }
 
-button:hover        { background: #2563eb; }
-button.danger       { background: #ef4444; }
-button.danger:hover { background: #dc2626; }
-
-#output-panel {
-  display: none;
-  margin-top: 16px;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  overflow: hidden;
+.divider { height:1px; background:#2a2d3e; margin:4px 0; }
+.collapse-toggle {
+  cursor:pointer; user-select:none; color:#888; font-size:.78rem; padding:4px 0;
 }
+.collapse-toggle:hover { color:#ccc; }
 
+#output-panel { display:none; margin-top:16px; border:1px solid #2a2d3e; border-radius:8px; overflow:hidden; }
 .output-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: #161822;
-  border-bottom: 1px solid #2a2d3e;
-  font-size: 0.8rem;
-  color: #888;
-  flex-wrap: wrap;
-  gap: 8px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 14px; background:#161822; border-bottom:1px solid #2a2d3e;
+  font-size:.8rem; color:#888; flex-wrap:wrap; gap:8px;
 }
+.job-meta     { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.job-id-label { font-family:monospace; color:#60a5fa; }
+.job-name-label { font-weight:600; color:#fff; }
 
-.job-meta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.job-id-label { font-family: monospace; color: #60a5fa; }
-
-.output-tabs { display: flex; gap: 4px; }
-
+.output-tabs { display:flex; gap:4px; }
 .tab-btn {
-  background: transparent;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #888;
-  padding: 4px 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
+  background:transparent; border:1px solid #2a2d3e; border-radius:6px;
+  color:#888; padding:4px 12px; font-size:.75rem; font-weight:600; cursor:pointer;
 }
+.tab-btn.active             { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+.tab-btn:hover:not(.active) { background:#2a2d3e; }
 
-.tab-btn.active              { background: #3b82f6; border-color: #3b82f6; color: #fff; }
-.tab-btn:hover:not(.active)  { background: #2a2d3e; }
+.live-header {
+  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  background:#0d0f18; border-bottom:1px solid #2a2d3e; font-size:.8rem; color:#f59e0b; font-family:monospace;
+}
+#out-live-log {
+  background:#0a0c12; padding:14px; font-family:'Courier New',monospace;
+  font-size:.82rem; line-height:1.6; min-height:60px; max-height:320px;
+  overflow-y:auto; white-space:pre-wrap; word-break:break-all;
+}
+#out-live-log .stdout { color:#d4f1bc; }
+#out-live-log .stderr { color:#fca5a5; }
 
 .output-body {
-  background: #0a0c12;
-  padding: 14px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.82rem;
-  line-height: 1.6;
-  min-height: 60px;
-  max-height: 300px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
+  background:#0a0c12; padding:14px; font-family:'Courier New',monospace;
+  font-size:.82rem; line-height:1.6; min-height:60px; max-height:320px;
+  overflow-y:auto; white-space:pre-wrap; word-break:break-all;
 }
+.output-body.stdout { color:#d4f1bc; }
+.output-body.stderr { color:#fca5a5; }
 
-.output-body.stdout { color: #d4f1bc; }
-.output-body.stderr { color: #fca5a5; }
-
-.output-spinner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #f59e0b;
-  font-size: 0.82rem;
-  font-family: monospace;
-  padding: 14px;
+.artifacts-list { background:#0a0c12; padding:14px; min-height:60px; }
+.artifact-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 10px; border-radius:6px; margin-bottom:6px; background:#141620;
+  border:1px solid #2a2d3e; font-size:.83rem; font-family:monospace;
 }
+.artifact-item:last-child { margin-bottom:0; }
+.artifact-name { color:#93c5fd; }
+.artifact-size { color:#666; font-size:.75rem; margin-left:8px; }
+.artifact-dl {
+  background:#1e3a5f; color:#60a5fa; border:none; border-radius:4px;
+  padding:3px 10px; font-size:.75rem; font-weight:600; cursor:pointer; text-decoration:none;
+}
+.artifact-dl:hover { background:#2a4a7f; }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-
+@keyframes spin { to { transform:rotate(360deg); } }
 .spinner-icon {
-  width: 14px; height: 14px;
-  border: 2px solid #f59e0b44;
-  border-top-color: #f59e0b;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
+  width:12px; height:12px; border:2px solid #f59e0b44; border-top-color:#f59e0b;
+  border-radius:50%; animation:spin .8s linear infinite; flex-shrink:0; display:inline-block;
 }
+.refresh-note { font-size:.75rem; color:#555; }
 
-.refresh-note { font-size: 0.75rem; color: #555; }
+.api-key-bar {
+  display:flex; gap:8px; align-items:center; font-size:.78rem; color:#888;
+}
+.api-key-bar input { font-family:monospace; flex:1; min-width:150px; }
 </style>
 </head>
 <body>
 
-<h1><span class="dot"></span> GPU Job Scheduler</h1>
+<div class="topbar">
+  <h1 style="margin:0"><span class="dot"></span> GPU Job Scheduler</h1>
+  <a href="/admin">Admin Panel →</a>
+</div>
 
+<!-- Stat cards -->
 <div class="grid">
   <div class="stat-card"><div class="label">GPU Total</div><div class="value" id="s-gpu-total">—</div></div>
   <div class="stat-card"><div class="label">GPU Idle</div><div class="value green" id="s-gpu-idle">—</div></div>
@@ -262,59 +203,169 @@ button.danger:hover { background: #dc2626; }
   <div class="stat-card"><div class="label">Completed</div><div class="value green" id="s-completed">—</div></div>
 </div>
 
+<!-- GPU chips -->
 <div class="card">
   <h2>GPU Status</h2>
   <div class="gpu-grid" id="gpu-chips">Loading...</div>
 </div>
 
+<!-- Submit -->
 <div class="card">
   <h2>Submit Job</h2>
   <div class="submit-area">
-    <textarea id="job-code" placeholder="# Python code here&#10;import torch&#10;print(torch.cuda.is_available())"></textarea>
+
+    <!-- Job name + description -->
     <div class="row">
-      <select id="job-runtime"><option value="">Loading runtimes...</option></select>
-      <input id="job-cpus" type="number" value="1" min="0.1" max="8" step="0.1" style="width:90px" placeholder="CPUs">
-      <input id="job-memory" type="text" value="2g" style="width:100px" placeholder="Memory">
-      <button onclick="submitJob()">▶ Submit Job</button>
+      <div class="field-group" style="flex:1; min-width:200px">
+        <div class="field-label">Job name <span class="hint">(short, optional)</span></div>
+        <input type="text" id="job-name" placeholder="e.g. mnist baseline v3" style="width:100%">
+      </div>
+      <div class="field-group" style="flex:2; min-width:240px">
+        <div class="field-label">Description <span class="hint">(optional)</span></div>
+        <input type="text" id="job-description" placeholder="brief notes about this run" style="width:100%">
+      </div>
     </div>
 
+    <!-- Code source tabs -->
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="paste" onclick="setMode('paste')">Paste Code</button>
+      <button class="mode-tab" data-mode="file" onclick="setMode('file')">Upload .py</button>
+      <button class="mode-tab" data-mode="repo" onclick="setMode('repo')">GitHub / GitLab</button>
+    </div>
+
+    <div id="mode-paste" class="mode-panel active">
+      <div class="row" style="margin-bottom:8px">
+        <select id="template-select" onchange="loadTemplate(this.value)" style="width:auto">
+          <option value="">— Insert template —</option>
+          <option value="hello-gpu">Hello GPU (PyTorch)</option>
+          <option value="save-artifact">Save artifact (model.pt + metrics)</option>
+          <option value="train-mnist">MNIST training (PyTorch)</option>
+          <option value="use-dataset">Read uploaded dataset</option>
+          <option value="hello-tf">Hello GPU (TensorFlow)</option>
+        </select>
+      </div>
+      <div id="editor-container"></div>
+      <textarea id="job-code" style="display:none"></textarea>
+    </div>
+
+    <div id="mode-file" class="mode-panel">
+      <input type="file" id="code-file" accept=".py">
+    </div>
+
+    <div id="mode-repo" class="mode-panel">
+      <div class="field-group" style="margin-bottom:8px">
+        <div class="field-label">Repository URL (HTTPS)</div>
+        <input type="url" id="repo-url" placeholder="https://github.com/username/repo" style="width:100%">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Entrypoint</div>
+        <input type="text" id="entrypoint" value="main.py" style="width:200px">
+      </div>
+    </div>
+
+    <!-- requirements.txt — collapsible -->
+    <div class="collapse-toggle" onclick="toggleReqs()">
+      <span id="reqs-arrow">▸</span> Extra packages (requirements.txt)
+    </div>
+    <div id="reqs-panel" style="display:none">
+      <textarea id="job-requirements" placeholder="# one package per line, e.g.&#10;transformers==4.40.0&#10;datasets&#10;pandas" style="min-height:80px"></textarea>
+      <div class="hint" style="margin-top:4px">
+        ⚠ Якщо вказано requirements — задача отримає доступ до мережі для pip install (інакше: <code>--network none</code>).
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Options row -->
+    <div class="row">
+      <div class="field-group">
+        <div class="field-label">Runtime</div>
+        <select id="job-runtime"><option value="">Loading...</option></select>
+      </div>
+      <div class="field-group">
+        <div class="field-label">CPUs</div>
+        <input type="number" id="job-cpus" value="1" min="0.1" max="8" step="0.1" style="width:80px">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Memory</div>
+        <input type="text" id="job-memory" value="2g" style="width:80px" placeholder="2g">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Student ID</div>
+        <input type="text" id="student-id" placeholder="anonymous" style="width:130px">
+      </div>
+    </div>
+
+    <!-- API key -->
+    <div class="api-key-bar">
+      <span>API key:</span>
+      <input type="password" id="api-key" placeholder="(optional — paste key issued by admin)" autocomplete="off">
+      <button class="secondary" style="padding:6px 10px;font-size:.75rem" onclick="saveApiKey()">Save</button>
+      <button class="secondary" style="padding:6px 10px;font-size:.75rem" onclick="clearApiKey()">Clear</button>
+    </div>
+
+    <!-- Dataset upload -->
+    <div class="field-group">
+      <div class="field-label">Dataset (optional .zip — max 500 MB)</div>
+      <input type="file" id="dataset-file" accept=".zip">
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center">
+      <button onclick="submitJob()">&#9654; Submit Job</button>
+      <button class="secondary" onclick="cleanupJobs()" style="font-size:.8rem; padding:8px 14px">Clean finished</button>
+    </div>
+
+    <!-- Output panel -->
     <div id="output-panel">
       <div class="output-header">
         <div class="job-meta">
+          <span class="job-name-label" id="out-job-name"></span>
           <span>Job: <span class="job-id-label" id="out-job-id">—</span></span>
           <span id="out-badge"></span>
           <span id="out-gpu" style="color:#aaa"></span>
           <span id="out-time" style="color:#666"></span>
+          <span id="out-student" style="color:#666; font-size:.75rem"></span>
         </div>
-        <div class="output-tabs">
+        <div class="output-tabs" id="out-tabs" style="display:none">
           <button class="tab-btn active" onclick="showTab('stdout')">stdout</button>
-          <button class="tab-btn"        onclick="showTab('stderr')">stderr</button>
+          <button class="tab-btn" onclick="showTab('stderr')">stderr</button>
+          <button class="tab-btn" id="tab-btn-artifacts" style="display:none" onclick="showTab('artifacts')">Artifacts</button>
         </div>
       </div>
 
-      <div class="output-spinner" id="out-spinner">
-        <span class="spinner-icon"></span>
-        Running on GPU <span id="out-spinner-gpu">—</span>…
+      <div id="out-live" style="display:none">
+        <div class="live-header">
+          <span class="spinner-icon"></span>
+          <span id="out-live-status">Waiting for GPU...</span>
+        </div>
+        <div id="out-live-log"></div>
       </div>
 
-      <div class="output-body stdout" id="out-stdout" style="display:none"></div>
-      <div class="output-body stderr" id="out-stderr" style="display:none"></div>
+      <div id="out-final" style="display:none">
+        <div class="output-body stdout" id="out-stdout"></div>
+        <div class="output-body stderr" id="out-stderr" style="display:none"></div>
+        <div class="artifacts-list" id="out-artifacts" style="display:none"></div>
+      </div>
     </div>
 
   </div>
 </div>
 
+<!-- Jobs table -->
 <div class="card">
-  <h2>Jobs <span class="refresh-note">оновлюється кожні 2 сек · натисни на рядок щоб побачити вивід</span></h2>
+  <h2>
+    Jobs
+    <span class="refresh-note">оновлюється кожні 2 сек · натисни рядок щоб побачити вивід</span>
+    <label style="float:right;font-size:.8rem;color:#aaa;font-weight:400;cursor:pointer">
+      <input type="checkbox" id="filter-mine" checked onchange="loadData()">
+      only my jobs
+    </label>
+  </h2>
   <table>
     <thead>
       <tr>
-        <th>Job ID</th>
-        <th>Status</th>
-        <th>GPU</th>
-        <th>Runtime</th>
-        <th>Created</th>
-        <th>Action</th>
+        <th>Job</th><th>Status</th><th>GPU</th><th>Runtime</th>
+        <th>Student</th><th>Created</th><th>Action</th>
       </tr>
     </thead>
     <tbody id="jobs-body"></tbody>
@@ -322,9 +373,203 @@ button.danger:hover { background: #dc2626; }
 </div>
 
 <script>
-let activeJobId = null;
-let activeTab   = 'stdout';
+// ── State ─────────────────────────────────────────────────────────────────────
+let activeJobId       = null;
+let activeTab         = 'stdout';
+let submitMode        = 'paste';
+let liveStream        = null;
+let lastClusterStatus = null;
+let monacoEditor      = null;
 
+// ── Editor helpers (Monaco with textarea fallback) ────────────────────────────
+function getCode() {
+  return monacoEditor ? monacoEditor.getValue() : document.getElementById('job-code').value;
+}
+function setCode(v) {
+  if (monacoEditor) monacoEditor.setValue(v || '');
+  else document.getElementById('job-code').value = v || '';
+}
+
+// ── Init Monaco ──────────────────────────────────────────────────────────────
+require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+require(['vs/editor/editor.main'], function () {
+  monacoEditor = monaco.editor.create(document.getElementById('editor-container'), {
+    value: '# Python code here\nimport torch\nprint(torch.cuda.is_available())\n',
+    language: 'python',
+    theme: 'vs-dark',
+    automaticLayout: true,
+    fontSize: 13,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    tabSize: 4,
+  });
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  const savedSid = localStorage.getItem('student_id');
+  if (savedSid) document.getElementById('student-id').value = savedSid;
+  document.getElementById('student-id').addEventListener('change', e => {
+    localStorage.setItem('student_id', e.target.value);
+  });
+
+  const savedKey = localStorage.getItem('api_key') || '';
+  if (savedKey) document.getElementById('api-key').value = savedKey;
+
+  loadRuntimes();
+  loadData();
+  setInterval(loadData, 2000);
+})();
+
+// ── API key handling ─────────────────────────────────────────────────────────
+function saveApiKey() {
+  const v = document.getElementById('api-key').value.trim();
+  localStorage.setItem('api_key', v);
+  alert(v ? 'API key збережено локально.' : 'Ключ очищено.');
+}
+function clearApiKey() {
+  document.getElementById('api-key').value = '';
+  localStorage.removeItem('api_key');
+}
+function authHeaders() {
+  const k = document.getElementById('api-key').value.trim();
+  return k ? { 'X-API-Key': k } : {};
+}
+
+// ── requirements.txt panel toggle ─────────────────────────────────────────────
+function toggleReqs() {
+  const p = document.getElementById('reqs-panel');
+  const a = document.getElementById('reqs-arrow');
+  const open = p.style.display === 'none';
+  p.style.display = open ? 'block' : 'none';
+  a.textContent = open ? '▾' : '▸';
+}
+
+// ── Submit mode tabs ──────────────────────────────────────────────────────────
+function setMode(mode) {
+  submitMode = mode;
+  document.querySelectorAll('.mode-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('mode-' + mode).classList.add('active');
+}
+
+// ── Code templates ────────────────────────────────────────────────────────────
+const TEMPLATES = {
+  'hello-gpu': {
+    runtime: 'pytorch-cu121',
+    code: `import torch
+
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+
+if torch.cuda.is_available():
+    print(f"Device: {torch.cuda.get_device_name(0)}")
+    x = torch.randn(1000, 1000, device='cuda')
+    y = x @ x.T
+    print(f"Result sum: {y.sum().item():.2f}")
+`
+  },
+  'save-artifact': {
+    runtime: 'pytorch-cu121',
+    code: `import os
+import torch
+
+output_dir = os.environ.get('OUTPUT_DIR', '/workspace/output')
+os.makedirs(output_dir, exist_ok=True)
+
+model = torch.nn.Linear(10, 1).cuda()
+print("Training complete")
+
+torch.save(model.state_dict(), os.path.join(output_dir, 'model.pt'))
+
+with open(os.path.join(output_dir, 'metrics.txt'), 'w') as f:
+    f.write("accuracy: 0.95\\nloss: 0.05\\n")
+
+print(f"Artifacts saved to {output_dir}")
+`
+  },
+  'train-mnist': {
+    runtime: 'pytorch-cu121',
+    code: `import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+output_dir = os.environ.get('OUTPUT_DIR', '/workspace/output')
+os.makedirs(output_dir, exist_ok=True)
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Using device: {device}")
+
+model = nn.Sequential(
+    nn.Flatten(), nn.Linear(784, 128), nn.ReLU(), nn.Linear(128, 10),
+).to(device)
+
+opt = optim.Adam(model.parameters(), lr=1e-3)
+loss_fn = nn.CrossEntropyLoss()
+
+x = torch.randn(256, 1, 28, 28, device=device)
+y = torch.randint(0, 10, (256,), device=device)
+
+for epoch in range(10):
+    opt.zero_grad()
+    loss = loss_fn(model(x), y)
+    loss.backward()
+    opt.step()
+    print(f"Epoch {epoch+1:2d} | loss = {loss.item():.4f}")
+
+torch.save(model.state_dict(), os.path.join(output_dir, 'mnist_model.pt'))
+print("Model saved.")
+`
+  },
+  'use-dataset': {
+    runtime: 'pytorch-cu121',
+    code: `import os
+
+data_dir = os.environ.get('DATA_DIR')
+if not data_dir or not os.path.isdir(data_dir):
+    print("No dataset uploaded — DATA_DIR is not set.")
+else:
+    print(f"Dataset directory: {data_dir}")
+    for root, dirs, files in os.walk(data_dir):
+        rel = os.path.relpath(root, data_dir)
+        for f in files:
+            full = os.path.join(rel, f) if rel != '.' else f
+            size = os.path.getsize(os.path.join(root, f))
+            print(f"  {full}  ({size} bytes)")
+`
+  },
+  'hello-tf': {
+    runtime: 'tensorflow',
+    code: `import tensorflow as tf
+
+print(f"TF version: {tf.__version__}")
+print(f"GPUs: {tf.config.list_physical_devices('GPU')}")
+
+a = tf.random.normal((1000, 1000))
+b = tf.matmul(a, a, transpose_b=True)
+print(f"Sum: {tf.reduce_sum(b).numpy():.2f}")
+`
+  },
+};
+
+function loadTemplate(key) {
+  if (!key) return;
+  const tpl = TEMPLATES[key];
+  if (!tpl) return;
+  if (getCode().trim() && !confirm('Замінити поточний код шаблоном?')) {
+    document.getElementById('template-select').value = '';
+    return;
+  }
+  setCode(tpl.code);
+  if (tpl.runtime) document.getElementById('job-runtime').value = tpl.runtime;
+  setMode('paste');
+  document.getElementById('template-select').value = '';
+}
+
+// ── Load runtimes ─────────────────────────────────────────────────────────────
 async function loadRuntimes() {
   const data = await fetch('/runtimes').then(r => r.json());
   const sel  = document.getElementById('job-runtime');
@@ -337,9 +582,11 @@ async function loadRuntimes() {
   }
 }
 
+// ── Dashboard data ────────────────────────────────────────────────────────────
 async function loadData() {
   try {
     const cluster = await fetch('/cluster-status').then(r => r.json());
+    lastClusterStatus = cluster;
     document.getElementById('s-gpu-total').textContent  = cluster.gpu_summary.total;
     document.getElementById('s-gpu-idle').textContent   = cluster.gpu_summary.idle;
     document.getElementById('s-gpu-busy').textContent   = cluster.gpu_summary.busy;
@@ -358,115 +605,313 @@ async function loadData() {
       chips.appendChild(chip);
     });
 
-    const jobs  = await fetch('/jobs').then(r => r.json());
+    const jobs       = await fetch('/jobs').then(r => r.json());
+    const myStudent  = (document.getElementById('student-id').value.trim() || 'anonymous');
+    const filterMine = document.getElementById('filter-mine').checked;
+    const visible    = filterMine ? jobs.jobs.filter(j => j.student_id === myStudent) : jobs.jobs;
+
     const tbody = document.getElementById('jobs-body');
     tbody.innerHTML = '';
-    jobs.jobs.forEach(job => {
+    if (visible.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#555;padding:20px">
+        ${filterMine ? 'У тебе ще немає задач. Зніми галочку "only my jobs" щоб побачити всі.' : 'Немає задач.'}
+      </td></tr>`;
+    }
+    visible.forEach(job => {
       const tr      = document.createElement('tr');
       const created = new Date(job.created_at).toLocaleTimeString();
       if (job.job_id === activeJobId) tr.classList.add('active-row');
+
+      let actionBtn = '';
+      if (['queued', 'running'].includes(job.status)) {
+        actionBtn = `<button class="danger" style="padding:4px 10px;font-size:.78rem"
+          onclick="cancelJob('${job.job_id}',event)">Cancel</button>`;
+      } else {
+        actionBtn = `<button class="secondary" style="padding:4px 10px;font-size:.78rem"
+          onclick="repeatJob('${job.job_id}',event)" title="Заповнити форму даними цієї задачі">↻ Repeat</button>`;
+      }
+
+      const jobLabel = job.name
+        ? `<strong style="color:#fff">${escapeHtml(job.name)}</strong>
+           <span style="color:#666;font-size:.75rem"> ${job.job_id.substring(0,8)}</span>`
+        : `${job.job_id.substring(0,8)}…`;
+
       tr.innerHTML = `
-        <td>${job.job_id.substring(0, 8)}…</td>
+        <td>${jobLabel}</td>
         <td><span class="badge ${job.status}">${job.status}</span></td>
         <td>${job.gpu_id ?? '—'}</td>
         <td>${job.runtime}</td>
+        <td style="color:#aaa;font-size:.8rem">${escapeHtml(job.student_id || '—')}</td>
         <td>${created}</td>
-        <td>${['queued','running'].includes(job.status)
-          ? `<button class="danger" onclick="cancelJob('${job.job_id}',event)">Cancel</button>`
-          : ''}</td>
+        <td>${actionBtn}</td>
       `;
       tr.onclick = () => openOutput(job.job_id);
       tbody.appendChild(tr);
     });
 
-    if (activeJobId) await refreshOutput();
+    if (activeJobId) updateOutputHeader();
 
   } catch(e) {
     console.error('Load error:', e);
   }
 }
 
-async function submitJob() {
-  const code    = document.getElementById('job-code').value;
-  const runtime = document.getElementById('job-runtime').value;
-  const cpus    = parseFloat(document.getElementById('job-cpus').value);
-  const memory  = document.getElementById('job-memory').value;
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
 
-  const res  = await fetch('/submit-job', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, runtime, cpus, memory })
+// ── Submit ────────────────────────────────────────────────────────────────────
+async function submitJob() {
+  const fd = new FormData();
+
+  if (submitMode === 'paste') {
+    const code = getCode().trim();
+    if (!code) { alert('Введи код'); return; }
+    fd.append('code', code);
+  } else if (submitMode === 'file') {
+    const file = document.getElementById('code-file').files[0];
+    if (!file) { alert('Вибери .py файл'); return; }
+    fd.append('code_file', file);
+  } else if (submitMode === 'repo') {
+    const url = document.getElementById('repo-url').value.trim();
+    if (!url) { alert('Введи URL репозиторію'); return; }
+    fd.append('repo_url', url);
+    fd.append('entrypoint', document.getElementById('entrypoint').value.trim() || 'main.py');
+  }
+
+  fd.append('runtime',     document.getElementById('job-runtime').value);
+  fd.append('cpus',        document.getElementById('job-cpus').value);
+  fd.append('memory',      document.getElementById('job-memory').value);
+  fd.append('student_id',  document.getElementById('student-id').value.trim() || 'anonymous');
+  fd.append('name',        document.getElementById('job-name').value.trim());
+  fd.append('description', document.getElementById('job-description').value.trim());
+
+  const reqs = document.getElementById('job-requirements').value.trim();
+  if (reqs) fd.append('requirements', reqs);
+
+  const dataset = document.getElementById('dataset-file').files[0];
+  if (dataset) fd.append('dataset', dataset);
+
+  const res  = await fetch('/submit-job-form', {
+    method: 'POST', body: fd, headers: authHeaders(),
   });
   const data = await res.json();
 
   if (res.ok) {
+    document.getElementById('dataset-file').value = '';
     openOutput(data.job_id);
   } else {
-    alert('Error: ' + (data.detail || JSON.stringify(data)));
+    alert('Помилка: ' + (data.detail || JSON.stringify(data)));
   }
   loadData();
 }
 
+// ── Output ────────────────────────────────────────────────────────────────────
 async function openOutput(jobId) {
   activeJobId = jobId;
   document.getElementById('output-panel').style.display = 'block';
-  document.getElementById('out-job-id').textContent = jobId.substring(0, 8) + '…';
-  document.getElementById('output-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  await refreshOutput();
-}
+  document.getElementById('out-job-id').textContent = jobId.substring(0,8) + '…';
+  document.getElementById('output-panel').scrollIntoView({ behavior:'smooth', block:'nearest' });
 
-async function refreshOutput() {
-  if (!activeJobId) return;
   let job;
-  try { job = await fetch(`/jobs/${activeJobId}`).then(r => r.json()); }
+  try { job = await fetch(`/jobs/${jobId}`).then(r => r.json()); }
   catch(e) { return; }
 
+  updateOutputHeaderFromJob(job);
+
+  if (['queued', 'running'].includes(job.status)) {
+    showLivePanel();
+    updateLiveStatus(job);
+    startStream(jobId);
+  } else {
+    showFinalPanel(job);
+  }
+}
+
+function showLivePanel() {
+  document.getElementById('out-live').style.display  = 'block';
+  document.getElementById('out-final').style.display = 'none';
+  document.getElementById('out-tabs').style.display  = 'none';
+  document.getElementById('out-live-log').innerHTML  = '';
+}
+
+function showFinalPanel(job) {
+  if (liveStream) { liveStream.close(); liveStream = null; }
+
+  document.getElementById('out-live').style.display  = 'none';
+  document.getElementById('out-final').style.display = 'block';
+  document.getElementById('out-tabs').style.display  = 'flex';
+
+  document.getElementById('out-stdout').textContent = job.stdout?.trim() || '(no output)';
+  document.getElementById('out-stderr').textContent = job.stderr?.trim() || '(empty)';
+
+  const artifacts = job.artifacts || [];
+  const tabBtn    = document.getElementById('tab-btn-artifacts');
+  const artDiv    = document.getElementById('out-artifacts');
+
+  if (artifacts.length > 0) {
+    tabBtn.style.display = 'inline-block';
+    tabBtn.textContent   = `Artifacts (${artifacts.length})`;
+    artDiv.innerHTML     = artifacts.map(a => `
+      <div class="artifact-item">
+        <span>
+          <span class="artifact-name">${escapeHtml(a.name)}</span>
+          <span class="artifact-size">${formatSize(a.size)}</span>
+        </span>
+        <a class="artifact-dl" href="/jobs/${job.job_id}/artifacts/${encodeURIComponent(a.name)}" download="${escapeHtml(a.name)}">
+          &#8595; Download
+        </a>
+      </div>`).join('');
+  } else {
+    tabBtn.style.display = 'none';
+  }
+  showTab(activeTab === 'artifacts' && artifacts.length === 0 ? 'stdout' : activeTab);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ── SSE log stream ────────────────────────────────────────────────────────────
+function startStream(jobId) {
+  if (liveStream) { liveStream.close(); liveStream = null; }
+
+  const logEl = document.getElementById('out-live-log');
+  liveStream  = new EventSource(`/jobs/${jobId}/logs/stream`);
+
+  liveStream.onmessage = async (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    if (data.type === 'end') {
+      liveStream.close(); liveStream = null;
+      const job = await fetch(`/jobs/${jobId}`).then(r => r.json());
+      updateOutputHeaderFromJob(job);
+      showFinalPanel(job);
+      return;
+    }
+
+    if (data.type === 'stdout' || data.type === 'stderr') {
+      const span = document.createElement('span');
+      span.className   = data.type;
+      span.textContent = (data.line || '') + '\n';
+      logEl.appendChild(span);
+      logEl.scrollTop  = logEl.scrollHeight;
+    }
+  };
+  liveStream.onerror = () => {
+    if (liveStream) { liveStream.close(); liveStream = null; }
+  };
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+async function updateOutputHeader() {
+  if (!activeJobId) return;
+  try {
+    const job = await fetch(`/jobs/${activeJobId}`).then(r => r.json());
+    updateOutputHeaderFromJob(job);
+    updateLiveStatus(job);
+    if (!['queued', 'running'].includes(job.status)
+        && document.getElementById('out-live').style.display !== 'none') {
+      showFinalPanel(job);
+    }
+  } catch(e) {}
+}
+
+function updateOutputHeaderFromJob(job) {
+  document.getElementById('out-job-name').textContent = job.name || '';
   document.getElementById('out-badge').innerHTML =
     `<span class="badge ${job.status}">${job.status}</span>`;
-
   document.getElementById('out-gpu').textContent =
     job.gpu_id != null ? `GPU ${job.gpu_id}` : '';
+  document.getElementById('out-student').textContent =
+    job.student_id ? `@${job.student_id}` : '';
 
   if (job.started_at && job.finished_at) {
     const sec = ((new Date(job.finished_at) - new Date(job.started_at)) / 1000).toFixed(1);
-    document.getElementById('out-time').textContent = `⏱ ${sec}s`;
+    document.getElementById('out-time').textContent = `${sec}s`;
   } else {
     document.getElementById('out-time').textContent = '';
   }
+}
 
-  const done = ['completed', 'failed', 'cancelled'].includes(job.status);
-
-  document.getElementById('out-spinner').style.display = done ? 'none' : 'flex';
-  document.getElementById('out-spinner-gpu').textContent = job.gpu_id ?? '—';
-
-  if (done) {
-    document.getElementById('out-stdout').textContent =
-      job.stdout?.trim() || '(no output)';
-    document.getElementById('out-stderr').textContent =
-      job.stderr?.trim() || '(empty)';
-    showTab(activeTab);
+function updateLiveStatus(job) {
+  const el = document.getElementById('out-live-status');
+  if (!el) return;
+  if (job.status === 'queued') {
+    const pos = job.queue_position;
+    const avg = lastClusterStatus?.avg_execution_time_seconds;
+    if (pos != null && avg != null) {
+      const wait = Math.max(0, Math.ceil((pos - 1) * avg));
+      el.textContent = `Queued — position ${pos}, est. wait ~${wait}s (avg job ${avg}s)`;
+    } else if (pos != null) {
+      el.textContent = `Queued — position ${pos} in queue`;
+    } else {
+      el.textContent = 'Queued — waiting for free GPU...';
+    }
+  } else if (job.status === 'running') {
+    el.textContent = `Running on GPU ${job.gpu_id ?? '?'}`;
   }
 }
 
 function showTab(tab) {
   activeTab = tab;
-  document.getElementById('out-stdout').style.display = tab === 'stdout' ? 'block' : 'none';
-  document.getElementById('out-stderr').style.display = tab === 'stderr' ? 'block' : 'none';
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent.trim() === tab);
+  document.getElementById('out-stdout').style.display    = tab === 'stdout'    ? 'block' : 'none';
+  document.getElementById('out-stderr').style.display    = tab === 'stderr'    ? 'block' : 'none';
+  document.getElementById('out-artifacts').style.display = tab === 'artifacts' ? 'block' : 'none';
+  document.querySelectorAll('#out-tabs .tab-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.toLowerCase().startsWith(tab));
   });
 }
 
+// ── Actions ───────────────────────────────────────────────────────────────────
 async function cancelJob(jobId, e) {
   e.stopPropagation();
-  await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
+  await fetch(`/jobs/${jobId}/cancel`, { method:'POST' });
   loadData();
 }
 
-loadRuntimes();
-loadData();
-setInterval(loadData, 2000);
-</script>
+async function cleanupJobs() {
+  const res  = await fetch('/jobs/cleanup', { method:'DELETE' });
+  const data = await res.json();
+  alert(`Видалено ${data.removed_jobs} завершених задач`);
+  loadData();
+}
 
+async function repeatJob(jobId, e) {
+  e.stopPropagation();
+  const job = await fetch(`/jobs/${jobId}`).then(r => r.json());
+
+  if (job.repo_url) {
+    setMode('repo');
+    document.getElementById('repo-url').value   = job.repo_url;
+    document.getElementById('entrypoint').value = job.entrypoint || 'main.py';
+  } else {
+    setMode('paste');
+    setCode(job.code || '');
+  }
+
+  document.getElementById('job-runtime').value     = job.runtime;
+  document.getElementById('job-cpus').value        = job.cpus;
+  document.getElementById('job-memory').value      = job.memory;
+  document.getElementById('job-name').value        = job.name || '';
+  document.getElementById('job-description').value = job.description || '';
+  document.getElementById('job-requirements').value = job.requirements || '';
+  if (job.requirements) {
+    document.getElementById('reqs-panel').style.display = 'block';
+    document.getElementById('reqs-arrow').textContent = '▾';
+  }
+
+  document.querySelector('.card h2').scrollIntoView({behavior:'smooth', block:'start'});
+
+  if (job.has_dataset) {
+    setTimeout(() => alert('⚠ До цієї задачі був прикріплений датасет. Прикріпи його заново якщо потрібно.'), 200);
+  }
+}
+</script>
 </body>
 </html>

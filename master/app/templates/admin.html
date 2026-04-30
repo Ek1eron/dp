@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Admin — GPU Job Scheduler</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f1117; color: #e0e0e0; padding: 24px; }
+
+h1 { font-size:1.5rem; font-weight:600; color:#fff; margin-bottom:24px;
+     display:flex; align-items:center; gap:10px; }
+h1 .badge-admin {
+  background:#7c2d12; color:#fed7aa; padding:3px 10px; border-radius:12px;
+  font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+}
+
+.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.topbar a { color:#60a5fa; text-decoration:none; font-size:.85rem; }
+.topbar a:hover { text-decoration:underline; }
+
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.stat-card { background:#1e2130; border-radius:10px; padding:20px; border:1px solid #2a2d3e; }
+.stat-card .label { font-size:.75rem; color:#888; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+.stat-card .value { font-size:1.8rem; font-weight:700; color:#fff; }
+.stat-card .value.green  { color:#22c55e; }
+.stat-card .value.orange { color:#f59e0b; }
+.stat-card .value.purple { color:#a78bfa; }
+
+.card { background:#1e2130; border-radius:10px; padding:20px; margin-bottom:20px; border:1px solid #2a2d3e; }
+.card h2 { font-size:1rem; font-weight:600; margin-bottom:16px; color:#c0c0c0; }
+
+table { width:100%; border-collapse:collapse; font-size:.85rem; }
+th { text-align:left; padding:10px 12px; color:#888; font-weight:500; border-bottom:1px solid #2a2d3e;
+     font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; }
+td { padding:10px 12px; border-bottom:1px solid #1a1d2a; font-family:monospace; }
+tr:last-child td { border-bottom:none; }
+
+input, button {
+  background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
+  color:#e0e0e0; padding:8px 12px; font-size:.85rem;
+}
+button {
+  background:#3b82f6; color:#fff; border:none; padding:10px 20px;
+  font-weight:600; cursor:pointer; transition:.2s;
+}
+button:hover  { background:#2563eb; }
+button.danger { background:#ef4444; }
+button.danger:hover { background:#dc2626; }
+button.secondary { background:#2a2d3e; }
+button.secondary:hover { background:#3a3d4e; }
+
+.row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+.field-group { display:flex; flex-direction:column; gap:4px; }
+.field-label { font-size:.72rem; color:#666; text-transform:uppercase; letter-spacing:.05em; }
+
+.code-mono { font-family:monospace; }
+.muted { color:#666; }
+
+.runtime-bar {
+  display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:.85rem;
+}
+.runtime-bar .name { width:140px; color:#aaa; font-family:monospace; }
+.runtime-bar .bar { flex:1; height:18px; background:#0f1117; border-radius:4px; overflow:hidden; }
+.runtime-bar .bar > span { display:block; height:100%; background:#3b82f6; }
+.runtime-bar .count { width:50px; text-align:right; color:#fff; font-weight:600; }
+
+.empty {
+  text-align:center; color:#555; padding:30px 0; font-size:.9rem;
+}
+
+.admin-key-prompt {
+  position:fixed; inset:0; background:#0f1117ee; display:flex;
+  align-items:center; justify-content:center; z-index:1000;
+}
+.admin-key-prompt .dialog {
+  background:#1e2130; border:1px solid #2a2d3e; border-radius:10px;
+  padding:30px; min-width:380px; max-width:90%;
+}
+.admin-key-prompt h3 { color:#fff; margin-bottom:16px; }
+.admin-key-prompt .hint { color:#888; font-size:.85rem; margin-bottom:14px; }
+
+.toast {
+  position:fixed; bottom:24px; right:24px; background:#1e2130;
+  border:1px solid #2a2d3e; border-radius:8px; padding:12px 18px;
+  color:#e0e0e0; font-size:.85rem; box-shadow:0 4px 12px rgba(0,0,0,.4);
+  z-index:1100; animation:fadein .2s ease;
+}
+@keyframes fadein { from {opacity:0; transform:translateY(8px);} to {opacity:1; transform:none;} }
+</style>
+</head>
+<body>
+
+<!-- Admin key prompt -->
+<div class="admin-key-prompt" id="key-prompt" style="display:none">
+  <div class="dialog">
+    <h3>Admin Key</h3>
+    <div class="hint">Введи ADMIN_API_KEY що задано в <code>.env</code>.</div>
+    <input type="password" id="admin-key-input" autocomplete="off"
+           placeholder="paste admin key" style="width:100%; margin-bottom:12px"
+           onkeypress="if(event.key==='Enter') submitAdminKey()">
+    <div style="display:flex; gap:10px; justify-content:flex-end">
+      <button class="secondary" onclick="window.location='/'">Cancel</button>
+      <button onclick="submitAdminKey()">Continue</button>
+    </div>
+  </div>
+</div>
+
+<div id="main-content" style="display:none">
+  <div class="topbar">
+    <h1 style="margin:0">
+      <span style="color:#fff">GPU Job Scheduler</span>
+      <span class="badge-admin">admin</span>
+    </h1>
+    <div>
+      <a href="/" style="margin-right:14px">← Back to Dashboard</a>
+      <a href="#" onclick="logout(); return false;" style="color:#ef4444">Logout</a>
+    </div>
+  </div>
+
+  <!-- Overview cards -->
+  <div class="grid">
+    <div class="stat-card"><div class="label">Total Students</div><div class="value purple" id="o-students">—</div></div>
+    <div class="stat-card"><div class="label">Total Jobs</div><div class="value" id="o-total-jobs">—</div></div>
+    <div class="stat-card"><div class="label">Completed</div><div class="value green" id="o-completed">—</div></div>
+    <div class="stat-card"><div class="label">Avg Time</div><div class="value orange" id="o-avg">—</div></div>
+    <div class="stat-card"><div class="label">Longest Run</div><div class="value" id="o-longest">—</div></div>
+  </div>
+
+  <!-- Per-student table -->
+  <div class="card">
+    <h2>Per-student usage</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Student</th><th>Jobs</th><th>Completed</th><th>Failed</th><th>Cancelled</th>
+          <th>Active</th><th>Total GPU time</th>
+        </tr>
+      </thead>
+      <tbody id="students-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Runtime usage bars -->
+  <div class="card">
+    <h2>Runtime usage</h2>
+    <div id="runtimes-body"></div>
+  </div>
+
+  <!-- API key management -->
+  <div class="card">
+    <h2>API keys</h2>
+    <div class="row" style="margin-bottom:14px">
+      <div class="field-group">
+        <div class="field-label">Student ID</div>
+        <input type="text" id="new-key-student" placeholder="ivan_petrenko" style="width:200px">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Display name (optional)</div>
+        <input type="text" id="new-key-name" placeholder="Іван Петренко" style="width:240px">
+      </div>
+      <button onclick="generateKey()">Generate Key</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Student</th><th>Name</th><th>Key</th><th>Created</th><th>Action</th></tr>
+      </thead>
+      <tbody id="keys-body"></tbody>
+    </table>
+  </div>
+
+  <!-- All jobs table -->
+  <div class="card">
+    <h2>All jobs <span style="font-size:.75rem;color:#555">(latest 50)</span></h2>
+    <table>
+      <thead>
+        <tr><th>Name / ID</th><th>Student</th><th>Status</th><th>Runtime</th><th>Created</th><th>Action</th></tr>
+      </thead>
+      <tbody id="all-jobs-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let adminKey = localStorage.getItem('admin_key') || '';
+
+(function init() {
+  if (!adminKey) {
+    document.getElementById('key-prompt').style.display = 'flex';
+    setTimeout(() => document.getElementById('admin-key-input').focus(), 100);
+  } else {
+    boot();
+  }
+})();
+
+async function submitAdminKey() {
+  const v = document.getElementById('admin-key-input').value.trim();
+  if (!v) return;
+  adminKey = v;
+  // Verify
+  const ok = await fetch('/admin/check', { headers: adminHeaders() })
+    .then(r => r.ok).catch(() => false);
+  if (!ok) {
+    alert('Невірний admin key (або ADMIN_API_KEY не заданий у .env)');
+    return;
+  }
+  localStorage.setItem('admin_key', adminKey);
+  document.getElementById('key-prompt').style.display = 'none';
+  boot();
+}
+
+function logout() {
+  localStorage.removeItem('admin_key');
+  window.location.reload();
+}
+
+function adminHeaders() {
+  return { 'X-Admin-Key': adminKey };
+}
+
+async function boot() {
+  document.getElementById('main-content').style.display = 'block';
+  loadStats();
+  loadKeys();
+  loadAllJobs();
+  setInterval(() => { loadStats(); loadAllJobs(); }, 5000);
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const stats = await fetch('/admin/stats', { headers: adminHeaders() }).then(r => r.json());
+
+    const o = stats.overview;
+    document.getElementById('o-students').textContent   = o.total_students ?? 0;
+    document.getElementById('o-total-jobs').textContent = o.total_jobs ?? 0;
+    document.getElementById('o-completed').textContent  = o.completed_jobs ?? 0;
+    document.getElementById('o-avg').textContent        = o.avg_execution_seconds != null ? `${o.avg_execution_seconds}s` : '—';
+    document.getElementById('o-longest').textContent    = o.longest_job_seconds != null ? `${o.longest_job_seconds}s` : '—';
+
+    // Per-student
+    const sb = document.getElementById('students-body');
+    if (stats.students.length === 0) {
+      sb.innerHTML = '<tr><td colspan="7" class="empty">Ще немає задач</td></tr>';
+    } else {
+      sb.innerHTML = stats.students.map(s => `
+        <tr>
+          <td><strong style="color:#fff">${escapeHtml(s.student_id)}</strong></td>
+          <td>${s.total}</td>
+          <td style="color:#22c55e">${s.completed}</td>
+          <td style="color:#ef4444">${s.failed}</td>
+          <td style="color:#888">${s.cancelled}</td>
+          <td style="color:#f59e0b">${s.queued + s.running}</td>
+          <td>${formatDuration(s.total_gpu_time_seconds)}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Runtime usage bars
+    const rb = document.getElementById('runtimes-body');
+    const total = Object.values(stats.runtime_usage).reduce((a,b) => a+b, 0);
+    if (total === 0) {
+      rb.innerHTML = '<div class="empty">Ще немає задач</div>';
+    } else {
+      const rows = Object.entries(stats.runtime_usage).sort((a,b) => b[1]-a[1]);
+      rb.innerHTML = rows.map(([name, count]) => {
+        const pct = (count / total * 100).toFixed(0);
+        return `<div class="runtime-bar">
+          <span class="name">${escapeHtml(name)}</span>
+          <span class="bar"><span style="width:${pct}%"></span></span>
+          <span class="count">${count}</span>
+        </div>`;
+      }).join('');
+    }
+  } catch(e) {
+    console.error('Stats load error:', e);
+  }
+}
+
+// ── API keys ──────────────────────────────────────────────────────────────────
+async function loadKeys() {
+  const data = await fetch('/admin/keys', { headers: adminHeaders() }).then(r => r.json());
+  const tb = document.getElementById('keys-body');
+  if (data.keys.length === 0) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty">Немає виданих ключів</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.keys.map(k => `
+    <tr>
+      <td><strong style="color:#fff">${escapeHtml(k.student_id)}</strong></td>
+      <td style="color:#aaa">${escapeHtml(k.name)}</td>
+      <td class="code-mono" style="color:#60a5fa; font-size:.78rem">
+        ${k.api_key.substring(0,20)}…
+        <button class="secondary" style="padding:2px 8px; font-size:.7rem; margin-left:6px"
+                onclick="copyKey('${k.api_key}')">copy</button>
+      </td>
+      <td class="muted" style="font-size:.78rem">${new Date(k.created_at).toLocaleString()}</td>
+      <td>
+        <button class="danger" style="padding:4px 10px; font-size:.78rem"
+                onclick="revokeKey('${k.api_key}')">Revoke</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function generateKey() {
+  const sid = document.getElementById('new-key-student').value.trim();
+  const nm  = document.getElementById('new-key-name').value.trim();
+  if (!sid) { alert('Введи Student ID'); return; }
+  const res = await fetch('/admin/keys', {
+    method: 'POST',
+    headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ student_id: sid, name: nm }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert('Помилка: ' + (data.detail || JSON.stringify(data)));
+    return;
+  }
+  document.getElementById('new-key-student').value = '';
+  document.getElementById('new-key-name').value = '';
+  copyKey(data.api_key);
+  toast(`Ключ створено та скопійовано в буфер для студента ${data.student_id}`);
+  loadKeys();
+}
+
+async function revokeKey(key) {
+  if (!confirm(`Відкликати ключ ${key.substring(0,20)}…?`)) return;
+  await fetch(`/admin/keys/${encodeURIComponent(key)}`, {
+    method: 'DELETE', headers: adminHeaders(),
+  });
+  toast('Ключ відкликано');
+  loadKeys();
+}
+
+function copyKey(key) {
+  navigator.clipboard.writeText(key).then(() => toast('Ключ скопійовано в буфер'));
+}
+
+// ── All jobs ──────────────────────────────────────────────────────────────────
+async function loadAllJobs() {
+  const data = await fetch('/jobs').then(r => r.json());
+  const jobs = data.jobs.slice(0, 50);
+  const tb   = document.getElementById('all-jobs-body');
+  if (jobs.length === 0) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty">Немає задач</td></tr>';
+    return;
+  }
+  tb.innerHTML = jobs.map(j => {
+    const created = new Date(j.created_at).toLocaleString();
+    const label = j.name
+      ? `<strong style="color:#fff">${escapeHtml(j.name)}</strong> <span class="muted">${j.job_id.substring(0,8)}</span>`
+      : `<span class="code-mono">${j.job_id.substring(0,12)}…</span>`;
+    const action = ['queued','running'].includes(j.status)
+      ? `<button class="danger" style="padding:4px 10px; font-size:.78rem" onclick="killJob('${j.job_id}')">Kill</button>`
+      : '<span class="muted">—</span>';
+    return `<tr>
+      <td>${label}</td>
+      <td style="color:#aaa">${escapeHtml(j.student_id || '—')}</td>
+      <td><span style="color:${statusColor(j.status)}">${j.status}</span></td>
+      <td>${j.runtime}</td>
+      <td class="muted" style="font-size:.78rem">${created}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function killJob(jobId) {
+  if (!confirm(`Force kill задачу ${jobId.substring(0,8)}?`)) return;
+  await fetch(`/admin/jobs/${jobId}/kill`, {
+    method: 'POST', headers: adminHeaders(),
+  });
+  toast('Задача зупинена');
+  loadAllJobs();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+function formatDuration(sec) {
+  if (sec < 60) return `${sec.toFixed(0)}s`;
+  if (sec < 3600) return `${(sec/60).toFixed(1)}m`;
+  return `${(sec/3600).toFixed(2)}h`;
+}
+
+function statusColor(s) {
+  return ({queued:'#60a5fa', running:'#f59e0b', completed:'#22c55e',
+           failed:'#ef4444', cancelled:'#888'})[s] || '#aaa';
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+</script>
+</body>
+</html>

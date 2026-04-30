@@ -16,8 +16,14 @@ services:
       REDIS_PORT: 6379
       GPU_COUNT: ${GPU_COUNT:-1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MAX_QUEUE_PER_STUDENT: ${MAX_QUEUE_PER_STUDENT:-3}
+      MAX_DATASET_SIZE_MB: ${MAX_DATASET_SIZE_MB:-500}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      REQUIRE_STUDENT_KEY: ${REQUIRE_STUDENT_KEY:-false}
     depends_on:
       - redis
+    volumes:
+      - jobs_data:/jobs
     restart: unless-stopped
 
   worker:
