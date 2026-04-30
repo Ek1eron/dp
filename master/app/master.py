@@ -154,9 +154,17 @@ def require_admin(x_admin_key: str | None = Header(default=None)):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+def iter_job_keys():
+    """Yield only job:{uuid} keys, skipping job:logs:{uuid} (Redis lists)."""
+    for key in r.keys("job:*"):
+        if key.startswith("job:logs:"):
+            continue
+        yield key
+
+
 def count_student_active_jobs(student_id: str) -> int:
     count = 0
-    for key in r.keys("job:*"):
+    for key in iter_job_keys():
         raw = r.get(key)
         if raw:
             job = json.loads(raw)
@@ -428,13 +436,13 @@ async def submit_job_form(
 @app.get("/jobs")
 def list_jobs(status: str = None):
     jobs = []
-    for key in r.keys("job:*"):
+    for key in iter_job_keys():
         raw = r.get(key)
         if raw:
             job = json.loads(raw)
             if status is None or job.get("status") == status:
                 jobs.append(job)
-    jobs.sort(key=lambda x: x["created_at"], reverse=True)
+    jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return {"jobs": jobs, "total": len(jobs)}
 
 
@@ -552,7 +560,7 @@ def cluster_status():
 
     counters = {"queued": 0, "running": 0, "completed": 0, "failed": 0, "cancelled": 0}
     durations = []
-    for key in r.keys("job:*"):
+    for key in iter_job_keys():
         raw = r.get(key)
         if not raw:
             continue
@@ -582,7 +590,7 @@ def cluster_status():
 @app.delete("/jobs/cleanup")
 def cleanup_jobs():
     removed = 0
-    for key in r.keys("job:*"):
+    for key in iter_job_keys():
         raw = r.get(key)
         if not raw:
             continue
@@ -616,7 +624,7 @@ def admin_stats(_=Depends(require_admin)):
     daily_jobs:    dict[str, int]  = {}
     overall_durations: list[float] = []
 
-    for key in r.keys("job:*"):
+    for key in iter_job_keys():
         raw = r.get(key)
         if not raw:
             continue
