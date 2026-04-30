@@ -114,22 +114,50 @@ cd dp
 
 ```bash
 cp .env.example .env
-nano .env
 ```
 
-Змінити `GPU_COUNT` на реальну кількість GPU сервера:
+**5.1 — Згенерувати `ADMIN_API_KEY`** (потрібен для доступу до адмін-панелі):
+
 ```bash
-# Дізнатись кількість GPU:
+echo "ADMIN_API_KEY=$(openssl rand -hex 24)" >> .env
+```
+
+Без цього ключа адмін-панель на `/admin` буде вимкнена. **Збережи ключ** — він знадобиться щоб увійти в адмін-панель.
+
+Подивитись згенерований ключ:
+```bash
+grep ADMIN_API_KEY .env
+```
+
+**5.2 — Дізнатись кількість GPU і відредагувати `.env`:**
+```bash
 nvidia-smi --query-gpu=name --format=csv,noheader | wc -l
+nano .env
 ```
 
 Приклад `.env` для сервера з 4 GPU:
 ```
 GPU_COUNT=4
 JOB_TIMEOUT_SECONDS=300
+LOG_LEVEL=INFO
 REDIS_HOST=redis
 REDIS_PORT=6379
+
+# Скільки активних задач може мати один студент одночасно
+MAX_QUEUE_PER_STUDENT=3
+
+# Максимальний розмір .zip датасету
+MAX_DATASET_SIZE_MB=500
+
+# Ключ для адмін-панелі (згенерований у кроці 5.1)
+ADMIN_API_KEY=<згенерований_ключ>
+
+# true = всі submit-job вимагають X-API-Key від студента (видається адміном)
+# false = поле student_id у формі береться "на віру"
+REQUIRE_STUDENT_KEY=false
 ```
+
+**Рекомендація для кафедри:** після того як видасте всім студентам ключі через адмін-панель, поставте `REQUIRE_STUDENT_KEY=true`. Тоді статистика буде достовірною (студент не зможе видавати себе за іншого).
 
 ---
 
@@ -215,6 +243,49 @@ curl -X POST http://localhost:8001/submit-job \
 ```bash
 curl http://localhost:8001/jobs/<job_id>
 ```
+
+---
+
+## Крок 10 — Адмін-панель та видача ключів студентам
+
+**1. Відкрити адмін-панель:**
+
+У браузері: `http://<IP_сервера>:8001/admin`
+
+Ввести `ADMIN_API_KEY` з `.env` (з кроку 5.1).
+
+**2. Видати ключі студентам:**
+
+У секції **API keys** заповнити:
+- Student ID — ідентифікатор (наприклад `ivan_petrenko`)
+- Display name — повне ім'я (опціонально)
+
+Натиснути **Generate Key** — ключ автоматично копіюється в буфер обміну. Передати студенту (через email / Telegram).
+
+**3. Студент вставляє ключ:**
+
+На dashboard `http://<IP_сервера>:8001` у полі **API key** студент вставляє свій ключ і натискає **Save**. Ключ зберігається у browser localStorage.
+
+**4. (Опціонально) Увімкнути обов'язкову автентифікацію:**
+
+Після того як усі студенти отримали ключі, у `.env` встановити:
+```
+REQUIRE_STUDENT_KEY=true
+```
+
+І перезапустити master:
+```bash
+docker compose restart master
+```
+
+Тепер усі задачі без валідного ключа отримуватимуть `401 Unauthorized`. Це гарантує що статистика по студентам достовірна.
+
+**5. Що видно в адмін-панелі:**
+
+- **Overview cards** — total students, total jobs, completed, avg time, longest run
+- **Per-student usage** — таблиця з кількістю задач, GPU-годинами, статусами
+- **Runtime usage** — горизонтальні бари: який runtime найпопулярніший
+- **All jobs** — останні 50 задач з кнопкою force-kill
 
 ---
 

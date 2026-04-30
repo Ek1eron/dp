@@ -24,17 +24,17 @@
 Студент (браузер або curl)
         │
         ▼
-Master API Server (FastAPI)  ← POST /submit-job
-        │
+Master API Server (FastAPI)  ← POST /submit-job, /admin/*
+        │                       Dashboard + Admin Panel
         ▼
 Redis Job Queue              ← задача ставиться в чергу
-        │
+        │                      + API ключі, логи стрімінгу
         ▼
 Worker (Scheduler)           ← вибирає вільну GPU
-        │
-        ▼
+        │                      pip install -r requirements.txt
+        ▼                      git clone репозиторіїв
 Docker Container             ← --gpus device=N --network none
-        │
+        │                      OUTPUT_DIR / DATA_DIR env vars
         ▼
 CUDA / PyTorch / TensorFlow
         │
@@ -46,11 +46,47 @@ GPU (NVIDIA)
 
 ---
 
+## Можливості
+
+### Для студентів
+- **Вставити код** прямо в браузерний редактор (Monaco з підсвіткою синтаксису)
+- **Завантажити `.py` файл** замість вставки коду
+- **Підключити публічний GitHub/GitLab репозиторій** — worker його склонує і запустить
+- **Завантажити датасет `.zip`** разом із кодом — розпаковується у `DATA_DIR`
+- **Додаткові пакети через `requirements.txt`** — `pip install` перед запуском коду
+- **Артефакти результату** — все, що код запише у `OUTPUT_DIR`, можна скачати після завершення
+- **Live-стрімінг логів** через Server-Sent Events
+- **Шаблони коду** — 5 готових прикладів (PyTorch, TensorFlow, MNIST)
+- **Ім'я та опис задачі** для зручної ідентифікації
+- **Repeat кнопка** — клонує параметри попередньої задачі у форму
+- **Фільтр "only my jobs"** у таблиці задач
+- **Оцінка часу очікування** на основі позиції в черзі і середнього часу
+
+### Для адміністратора (викладача)
+- **Адмін-панель** на `/admin` — статистика, управління, force-kill
+- **API ключі** для автентифікації студентів
+- **Per-student статистика** — кількість задач, GPU-години, найчастіші помилки
+- **Runtime usage** — які профілі найпопулярніші
+- **Force-kill** будь-якої задачі
+
+### Безпека
+- AST аналіз коду перед запуском (блокує `exec`, `eval`, `__import__`, `compile`)
+- Path traversal захист при розпакуванні zip (zip-slip)
+- Валідація `requirements.txt` — блокує `-e`, `git+`, `--index-url`, тощо
+- Docker-level: `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit 200`
+- `--network none` за замовчуванням (`bridge` лише коли є requirements)
+- Per-student queue limit (HTTP 429)
+- Path traversal захист при скачуванні артефактів
+
+---
+
 ## Технологічний стек
 
 | Компонент | Технологія |
 |---|---|
 | API сервер | Python, FastAPI |
+| Real-time стрімінг | Server-Sent Events (sse-starlette) |
+| Code editor | Monaco Editor |
 | Черга задач | Redis |
 | Виконання задач | Docker, NVIDIA Container Toolkit |
 | GPU фреймворки | PyTorch, TensorFlow, CUDA |
@@ -66,24 +102,32 @@ gpu-job-scheduler/
 │
 ├── master/
 │   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── requirements.txt        # fastapi, sse-starlette, python-multipart, ...
 │   └── app/
-│       ├── master.py          # FastAPI сервер
+│       ├── master.py           # FastAPI сервер + admin API
 │       └── templates/
-│           └── dashboard.html # веб-інтерфейс
+│           ├── dashboard.html  # веб-інтерфейс для студентів
+│           └── admin.html      # адмін-панель
 │
 ├── worker/
-│   ├── Dockerfile
+│   ├── Dockerfile              # містить git, docker-cli
 │   ├── requirements.txt
 │   └── app/
-│       └── worker.py          # scheduler + виконавець задач
+│       └── worker.py           # scheduler + виконавець + стрімінг логів
 │
-├── logs/                      # логи контейнерів задач
+├── examples/
+│   ├── train.py                # приклад тренування MLP
+│   ├── dataset.zip             # синтетичний датасет (CSV)
+│   └── _make_dataset.py        # генератор датасету
+│
+├── tests/
+│   └── test_api.py             # pytest тести (50+ тестів)
+│
+├── logs/                       # логи worker-а (ротація)
 ├── docker-compose.yml
-├── .env.example               # шаблон змінних середовища
-├── Makefile
+├── .env.example                # шаблон змінних середовища
 ├── README.md
-└── DEPLOY.md                  # інструкція розгортання на сервері
+└── DEPLOY.md                   # інструкція розгортання на сервері
 ```
 
 ---
@@ -101,28 +145,25 @@ cd dp
 cp .env.example .env
 ```
 
-За замовчуванням `GPU_COUNT=1`. Якщо GPU більше — змінити значення у `.env`.
+**3. Згенерувати ADMIN_API_KEY** (для доступу до адмін-панелі)
+```bash
+echo "ADMIN_API_KEY=$(openssl rand -hex 24)" >> .env
+```
+(або просто залишити порожнім — тоді адмін-панель буде вимкнена)
 
-**3. Запустити систему**
+**4. Запустити систему**
 ```bash
 docker compose up --build -d
 ```
 
-**4. Відкрити Dashboard**
+**5. Відкрити Dashboard**
 
-Перейти у браузері: [http://localhost:8001](http://localhost:8001)
+[http://localhost:8001](http://localhost:8001) — для студентів
+[http://localhost:8001/admin](http://localhost:8001/admin) — адмін-панель (треба ADMIN_API_KEY)
 
-**5. Перевірити що GPU знайдена**
+**6. Перевірити що GPU знайдена**
 ```bash
 docker compose logs worker
-```
-
-Очікуваний вивід:
-```
-Worker started. GPU_COUNT=1, JOB_TIMEOUT=300s
-[GPU] Detected GPUs: 1
-[GPU]   [0] NVIDIA GeForce RTX ...
-[GPU] OK: GPU_COUNT=1 matches real GPU count.
 ```
 
 > Для розгортання на кафедральному сервері — див. [DEPLOY.md](DEPLOY.md)
@@ -139,62 +180,169 @@ Worker started. GPU_COUNT=1, JOB_TIMEOUT=300s
 | `pytorch-cu118` | `pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime` | PyTorch + CUDA 11.8 |
 | `tensorflow` | `tensorflow/tensorflow:2.15.0-gpu` | TensorFlow з GPU |
 
+Якщо потрібен пакет якого нема в образі — використовуй `requirements.txt` (див. нижче).
+
+---
+
+## CPUs та Memory — як обирати
+
+| Поле | Призначення |
+|---|---|
+| `cpus` | М'який ліміт на CPU. `1.0` = одне ядро, `2.5` = 2.5 ядра. Допустимо: `0.1 - 8.0` |
+| `memory` | **Жорсткий** ліміт RAM. Якщо перевищити — OOM killer вб'є процес. Формат: `512m`, `2g` |
+
+**Рекомендації для GPU задач** (основна робота на GPU, тож CPU не вузьке місце):
+
+| Тип задачі | CPUs | Memory |
+|---|---|---|
+| Простий inference, `torch.cuda.is_available()` | `1` | `1g` |
+| Тренування малих моделей (MNIST, наш приклад) | `1-2` | `2g` |
+| Середні моделі (CIFAR, ResNet) | `2` | `4g` |
+| Великі моделі / великі датасети | `4` | `8g` |
+| Transformers, NLP з великими батчами | `4-8` | `8-16g` |
+
+**Підказки:**
+- Exit code `137` (`Killed`) у stderr — мало RAM, збільшити memory
+- GPU navantazena малою при повільному тренуванні — мало CPU (DataLoader не встигає)
+- VRAM (пам'ять GPU) — окреме питання, не контролюється цими полями
+
 ---
 
 ## API
 
-### Відправити задачу
-```
-POST /submit-job
-```
-```json
-{
-  "code": "import torch\nprint(torch.cuda.is_available())",
-  "runtime": "pytorch-cu121",
-  "cpus": 1.0,
-  "memory": "2g"
-}
-```
-Відповідь:
-```json
-{
-  "job_id": "4a63eb1d-...",
-  "status": "queued",
-  "runtime": "pytorch-cu121"
-}
+### Public API
+
+| Endpoint | Опис |
+|---|---|
+| `POST /submit-job` | Відправити задачу (JSON) |
+| `POST /submit-job-form` | Відправити з multipart (файл, репо, датасет) |
+| `GET /jobs` | Список задач (`?status=running`) |
+| `GET /jobs/{id}` | Деталі задачі |
+| `GET /jobs/{id}/logs/stream` | SSE-стрім live логів |
+| `GET /jobs/{id}/artifacts` | Список артефактів |
+| `GET /jobs/{id}/artifacts/{file}` | Скачати артефакт |
+| `POST /jobs/{id}/cancel` | Скасувати задачу |
+| `DELETE /jobs/cleanup` | Видалити завершені |
+| `GET /gpus`, `/cluster-status` | Стан GPU і кластеру |
+| `GET /runtimes` | Список runtime профілів |
+| `GET /health` | Health check |
+
+### Admin API (потребує `X-Admin-Key` header)
+
+| Endpoint | Опис |
+|---|---|
+| `GET /admin/check` | Перевірка ключа |
+| `GET /admin/stats` | Per-student + runtime + daily статистика |
+| `POST /admin/keys` | Створити API ключ для студента |
+| `GET /admin/keys` | Список ключів |
+| `DELETE /admin/keys/{key}` | Відкликати ключ |
+| `POST /admin/jobs/{id}/kill` | Force-kill будь-якої задачі |
+
+### Приклад відправки задачі
+
+```bash
+curl -X POST http://localhost:8001/submit-job \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import torch\nprint(torch.cuda.is_available())",
+    "runtime": "pytorch-cu121",
+    "cpus": 1.0,
+    "memory": "2g",
+    "name": "GPU check",
+    "student_id": "ivan_petrenko"
+  }'
 ```
 
-### Статус задачі
+З API ключем:
+```bash
+curl -X POST http://localhost:8001/submit-job \
+  -H "X-API-Key: key_..." \
+  -H "Content-Type: application/json" \
+  -d '{"code": "...", "runtime": "pytorch-cu121"}'
 ```
-GET /jobs/{job_id}
+Якщо ключ валідний — `student_id` береться з ключа (захист від підробки).
+
+---
+
+## Адмін-панель
+
+Доступна на `/admin` за наявності `ADMIN_API_KEY` у `.env`.
+
+**Можливості:**
+- Огляд кластера: загальна кількість студентів, задач, середній час виконання
+- Per-student таблиця: задач, completed/failed/cancelled, total GPU time
+- Runtime usage: які профілі найпопулярніші (горизонтальні бари)
+- Управління API ключами: створити, скопіювати, відкликати
+- Список усіх задач з force-kill кнопкою
+
+**Створити ключ:**
+1. Зайти на `/admin`, ввести ADMIN_API_KEY
+2. У секції "API keys" вписати Student ID + Display name → Generate Key
+3. Ключ автоматично копіюється в буфер
+4. Передати студенту — він вставить його у поле "API key" на dashboard
+
+**Чому це корисно:**
+- Студенти не можуть видавати себе один за одного у статистиці кафедри
+- Можна вимагати ключ для всіх задач: `REQUIRE_STUDENT_KEY=true` в `.env`
+- Викладач бачить хто скільки навантажує сервер
+
+---
+
+## requirements.txt — додаткові пакети
+
+Якщо студенту потрібен пакет якого нема у runtime образі (наприклад `transformers`, `wandb`, `opencv-python`) — він вказує його в полі **"Extra packages (requirements.txt)"** на dashboard.
+
+**Як це працює:**
+1. Студент пише пакети у textarea (`one per line`)
+2. Worker записує їх у файл та запускає у контейнері:
+   ```bash
+   pip install -r requirements.txt && python user_code.py
+   ```
+3. Контейнер з requirements отримує `--network bridge` (для доступу до PyPI), без — `--network none`
+
+**Приклад requirements:**
+```
+transformers==4.40.0
+datasets
+accelerate
 ```
 
-### Список задач
-```
-GET /jobs
-GET /jobs?status=running
+**Обмеження безпеки** (валідація на рівні API):
+- ❌ `-e ./local` (editable install) — заблоковано
+- ❌ `git+https://...` (git репо) — заблоковано
+- ❌ `--index-url`, `--find-links` — заблоковано
+- ❌ Розмір файлу > 10 КБ — заблоковано
+- ✅ Звичайні назви пакетів (`numpy==1.24`) — дозволено
+
+---
+
+## Артефакти
+
+Код студента може зберігати файли (модель, метрики, графіки) у `os.environ['OUTPUT_DIR']`. Після завершення задачі вони з'являються у вкладці **Artifacts** з кнопкою скачування.
+
+```python
+import os
+output_dir = os.environ['OUTPUT_DIR']
+os.makedirs(output_dir, exist_ok=True)
+
+torch.save(model.state_dict(), f"{output_dir}/model.pt")
+with open(f"{output_dir}/metrics.txt", 'w') as f:
+    f.write(f"accuracy: {acc:.4f}\n")
 ```
 
-### Скасувати задачу
-```
-POST /jobs/{job_id}/cancel
+---
+
+## Завантаження датасету
+
+Студент може прикріпити `.zip` архів (до 500 МБ) до задачі. Worker розпаковує його у тимчасову директорію, шлях передається у `os.environ['DATA_DIR']`:
+
+```python
+import os
+data_dir = os.environ['DATA_DIR']
+df = pd.read_csv(f"{data_dir}/train.csv")
 ```
 
-### Стан GPU
-```
-GET /gpus
-GET /cluster-status
-```
-
-### Список runtime профілів
-```
-GET /runtimes
-```
-
-### Здоров'я системи
-```
-GET /health
-```
+Готовий приклад: [examples/](examples/) — датасет (бінарна класифікація, 600 семплів) + train.py.
 
 ---
 
@@ -210,7 +358,7 @@ queued → running → completed
 - `running` — контейнер запущено на конкретній GPU
 - `completed` — код виконався з exit code 0
 - `failed` — помилка або таймаут
-- `cancelled` — скасовано користувачем
+- `cancelled` — скасовано користувачем або адміністратором
 
 Задачі зберігаються в Redis 24 години, після чого видаляються автоматично.
 
@@ -221,12 +369,23 @@ queued → running → completed
 Кожна задача запускається з обмеженнями:
 
 ```
---gpus device=N    доступ тільки до виділеної GPU
---cpus 1.0         обмеження CPU
---memory 2g        обмеження RAM
---network none     без доступу до мережі
---rm               контейнер видаляється після завершення
+--gpus device=N             доступ тільки до виділеної GPU
+--cpus 1.0                  обмеження CPU
+--memory 2g                 обмеження RAM
+--network none              без мережі (default)
+--network bridge            мережа лише коли є requirements.txt
+--cap-drop ALL              без Linux capabilities
+--security-opt no-new-privileges
+--pids-limit 200            захист від fork bomb
+--rm                        контейнер видаляється після завершення
 ```
+
+На рівні API:
+- AST аналіз коду — блокує `exec`, `eval`, `compile`, `__import__`
+- Розмір коду ≤ 200 КБ
+- Zip-slip перевірка при розпакуванні датасету
+- Path traversal захист при скачуванні артефактів
+- Per-student queue limit (`MAX_QUEUE_PER_STUDENT`, default `3`)
 
 ---
 
@@ -235,8 +394,28 @@ queued → running → completed
 | Змінна | За замовчуванням | Опис |
 |---|---|---|
 | `GPU_COUNT` | `1` | Кількість GPU на сервері |
-| `JOB_TIMEOUT_SECONDS` | `300` | Максимальний час виконання задачі (секунди) |
+| `JOB_TIMEOUT_SECONDS` | `300` | Максимальний час виконання задачі |
 | `REDIS_HOST` | `redis` | Хост Redis |
 | `REDIS_PORT` | `6379` | Порт Redis |
+| `LOG_LEVEL` | `INFO` | Рівень логування |
+| `MAX_QUEUE_PER_STUDENT` | `3` | Скільки активних задач може мати один студент |
+| `MAX_DATASET_SIZE_MB` | `500` | Максимальний розмір .zip датасету |
+| `ADMIN_API_KEY` | (порожній) | Ключ для доступу до адмін-панелі. Порожній = адмін вимкнений |
+| `REQUIRE_STUDENT_KEY` | `false` | `true` = всі submit-job вимагають валідний `X-API-Key` |
+
+---
+
+## Тестування
+
+```bash
+# Базові тести (без admin):
+pytest tests/test_api.py -v
+
+# З admin тестами:
+ADMIN_API_KEY=<key_from_env> pytest tests/test_api.py -v
+
+# Лише швидкі (без виконання задач на GPU):
+pytest tests/test_api.py::TestHealth tests/test_api.py::TestCodeSafety -v
+```
 
 ---
