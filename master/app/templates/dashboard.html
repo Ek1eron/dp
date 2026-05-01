@@ -2,460 +2,59 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPU Job Scheduler</title>
-
-<!-- Monaco editor loader -->
-<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #0f1117;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #1e2130; }
+  ::-webkit-scrollbar-thumb { background: #3b4465; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4b5585; }
 
-body {
-  font-family: 'Segoe UI', Arial, sans-serif;
-  background: #0f1117;
-  color: #e0e0e0;
-  padding: 24px;
-}
+  textarea, input, select {
+    background: #1a1f35;
+    border: 1px solid #2a3050;
+    border-radius: 6px;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, input:focus, select:focus { border-color: #3b82f6; }
+  select option { background: #1a1f35; }
+  input::placeholder, textarea::placeholder { color: #4a5580; }
 
-h1 {
-  font-size: 1.5rem; font-weight: 600; color: #fff;
-  margin-bottom: 24px; display: flex; align-items: center; gap: 10px;
-}
-h1 span.dot {
-  width: 10px; height: 10px; background: #22c55e; border-radius: 50%;
-  display: inline-block; animation: pulse 2s infinite;
-}
-@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+  button { cursor: pointer; font-family: 'Segoe UI', system-ui, sans-serif; }
 
-.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
-.topbar a { color:#60a5fa; text-decoration:none; font-size:.85rem; }
-.topbar a:hover { text-decoration:underline; }
-
-.grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
-  gap: 16px; margin-bottom: 24px;
-}
-.stat-card { background: #1e2130; border-radius: 10px; padding: 20px; border: 1px solid #2a2d3e; }
-.stat-card .label { font-size:.75rem; color:#888; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
-.stat-card .value { font-size:2rem; font-weight:700; color:#fff; }
-.stat-card .value.green  { color: #22c55e; }
-.stat-card .value.orange { color: #f59e0b; }
-
-.card { background: #1e2130; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2d3e; }
-.card h2 { font-size:1rem; font-weight:600; margin-bottom:16px; color:#c0c0c0; }
-
-.gpu-grid { display:flex; gap:12px; flex-wrap:wrap; }
-.gpu-chip { padding:10px 18px; border-radius:8px; font-size:.85rem; font-weight:600; border:2px solid transparent; }
-.gpu-chip.idle { background:#14532d22; border-color:#22c55e; color:#22c55e; }
-.gpu-chip.busy { background:#92400e22; border-color:#f59e0b; color:#f59e0b; }
-
-table { width:100%; border-collapse:collapse; font-size:.85rem; }
-th { text-align:left; padding:10px 12px; color:#888; font-weight:500; border-bottom:1px solid #2a2d3e; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; }
-td { padding:10px 12px; border-bottom:1px solid #1a1d2a; font-family:monospace; }
-tr:last-child td { border-bottom:none; }
-tbody tr { cursor:pointer; }
-tbody tr:hover { background:#191c27; }
-tbody tr.active-row { background:#1a2235; }
-
-.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:.75rem; font-weight:600; }
-.badge.queued    { background:#1e3a5f; color:#60a5fa; }
-.badge.running   { background:#451a03; color:#f59e0b; }
-.badge.completed { background:#14532d; color:#22c55e; }
-.badge.failed    { background:#450a0a; color:#ef4444; }
-.badge.cancelled { background:#1c1c1c; color:#888; }
-
-.submit-area { display:flex; flex-direction:column; gap:12px; }
-
-.mode-tabs { display:flex; gap:4px; margin-bottom:4px; }
-.mode-tab {
-  background:transparent; border:1px solid #2a2d3e; border-radius:6px;
-  color:#888; padding:6px 14px; font-size:.8rem; font-weight:600; cursor:pointer; transition:.15s;
-}
-.mode-tab.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
-.mode-tab:hover:not(.active) { background:#2a2d3e; color:#ccc; }
-
-.mode-panel { display:none; }
-.mode-panel.active { display:block; }
-
-textarea {
-  width:100%; background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
-  color:#e0e0e0; padding:12px; font-family:'Courier New',monospace; font-size:.85rem;
-  resize:vertical; min-height:80px;
-}
-select, input[type=text], input[type=number], input[type=url], input[type=password] {
-  background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
-  color:#e0e0e0; padding:8px 12px; font-size:.85rem;
-}
-input[type=file] {
-  background:#0f1117; border:1px solid #2a2d3e; border-radius:8px;
-  color:#e0e0e0; padding:8px 12px; font-size:.85rem; cursor:pointer; width:100%;
-}
-input[type=file]::file-selector-button {
-  background:#2a2d3e; border:none; color:#ccc; padding:4px 10px;
-  border-radius:4px; cursor:pointer; margin-right:10px; font-size:.8rem;
-}
-
-#editor-container {
-  height:280px; border:1px solid #2a2d3e; border-radius:8px; overflow:hidden;
-}
-
-.row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-.field-group { display:flex; flex-direction:column; gap:4px; }
-.field-label { font-size:.72rem; color:#666; text-transform:uppercase; letter-spacing:.05em; }
-.hint { font-size:.7rem; color:#555; }
-
-button {
-  background:#3b82f6; color:#fff; border:none; border-radius:8px;
-  padding:10px 20px; font-size:.9rem; font-weight:600; cursor:pointer; transition:.2s;
-}
-button:hover        { background:#2563eb; }
-button.danger       { background:#ef4444; }
-button.danger:hover { background:#dc2626; }
-button.secondary    { background:#2a2d3e; }
-button.secondary:hover { background:#3a3d4e; }
-
-.divider { height:1px; background:#2a2d3e; margin:4px 0; }
-.collapse-toggle {
-  cursor:pointer; user-select:none; color:#888; font-size:.78rem; padding:4px 0;
-}
-.collapse-toggle:hover { color:#ccc; }
-
-#output-panel { display:none; margin-top:16px; border:1px solid #2a2d3e; border-radius:8px; overflow:hidden; }
-.output-header {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:10px 14px; background:#161822; border-bottom:1px solid #2a2d3e;
-  font-size:.8rem; color:#888; flex-wrap:wrap; gap:8px;
-}
-.job-meta     { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-.job-id-label { font-family:monospace; color:#60a5fa; }
-.job-name-label { font-weight:600; color:#fff; }
-
-.output-tabs { display:flex; gap:4px; }
-.tab-btn {
-  background:transparent; border:1px solid #2a2d3e; border-radius:6px;
-  color:#888; padding:4px 12px; font-size:.75rem; font-weight:600; cursor:pointer;
-}
-.tab-btn.active             { background:#3b82f6; border-color:#3b82f6; color:#fff; }
-.tab-btn:hover:not(.active) { background:#2a2d3e; }
-
-.live-header {
-  display:flex; align-items:center; gap:8px; padding:10px 14px;
-  background:#0d0f18; border-bottom:1px solid #2a2d3e; font-size:.8rem; color:#f59e0b; font-family:monospace;
-}
-#out-live-log {
-  background:#0a0c12; padding:14px; font-family:'Courier New',monospace;
-  font-size:.82rem; line-height:1.6; min-height:60px; max-height:320px;
-  overflow-y:auto; white-space:pre-wrap; word-break:break-all;
-}
-#out-live-log .stdout { color:#d4f1bc; }
-#out-live-log .stderr { color:#fca5a5; }
-
-.output-body {
-  background:#0a0c12; padding:14px; font-family:'Courier New',monospace;
-  font-size:.82rem; line-height:1.6; min-height:60px; max-height:320px;
-  overflow-y:auto; white-space:pre-wrap; word-break:break-all;
-}
-.output-body.stdout { color:#d4f1bc; }
-.output-body.stderr { color:#fca5a5; }
-
-.artifacts-list { background:#0a0c12; padding:14px; min-height:60px; }
-.artifact-item {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:8px 10px; border-radius:6px; margin-bottom:6px; background:#141620;
-  border:1px solid #2a2d3e; font-size:.83rem; font-family:monospace;
-}
-.artifact-item:last-child { margin-bottom:0; }
-.artifact-name { color:#93c5fd; }
-.artifact-size { color:#666; font-size:.75rem; margin-left:8px; }
-.artifact-dl {
-  background:#1e3a5f; color:#60a5fa; border:none; border-radius:4px;
-  padding:3px 10px; font-size:.75rem; font-weight:600; cursor:pointer; text-decoration:none;
-}
-.artifact-dl:hover { background:#2a4a7f; }
-
-@keyframes spin { to { transform:rotate(360deg); } }
-.spinner-icon {
-  width:12px; height:12px; border:2px solid #f59e0b44; border-top-color:#f59e0b;
-  border-radius:50%; animation:spin .8s linear infinite; flex-shrink:0; display:inline-block;
-}
-.refresh-note { font-size:.75rem; color:#555; }
-
-.api-key-bar {
-  display:flex; gap:8px; align-items:center; font-size:.78rem; color:#888;
-}
-.api-key-bar input { font-family:monospace; flex:1; min-width:150px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 </style>
 </head>
 <body>
+<div id="root"></div>
 
-<div class="topbar">
-  <h1 style="margin:0"><span class="dot"></span> GPU Job Scheduler</h1>
-  <a href="/admin">Admin Panel →</a>
-</div>
+<script type="text/babel">
+{% raw %}
+const { useState, useEffect, useRef, useCallback } = React;
 
-<!-- Stat cards -->
-<div class="grid">
-  <div class="stat-card"><div class="label">GPU Total</div><div class="value" id="s-gpu-total">—</div></div>
-  <div class="stat-card"><div class="label">GPU Idle</div><div class="value green" id="s-gpu-idle">—</div></div>
-  <div class="stat-card"><div class="label">GPU Busy</div><div class="value orange" id="s-gpu-busy">—</div></div>
-  <div class="stat-card"><div class="label">In Queue</div><div class="value" id="s-queued">—</div></div>
-  <div class="stat-card"><div class="label">Running</div><div class="value orange" id="s-running">—</div></div>
-  <div class="stat-card"><div class="label">Completed</div><div class="value green" id="s-completed">—</div></div>
-</div>
+// ─── Constants & helpers ─────────────────────────────────────────────────────
+const POLL_MS    = 2000;
+const DRAFT_KEY  = 'gpu_scheduler_draft';
 
-<!-- GPU chips -->
-<div class="card">
-  <h2>GPU Status</h2>
-  <div class="gpu-grid" id="gpu-chips">Loading...</div>
-</div>
-
-<!-- Submit -->
-<div class="card">
-  <h2>Submit Job</h2>
-  <div class="submit-area">
-
-    <!-- Job name + description -->
-    <div class="row">
-      <div class="field-group" style="flex:1; min-width:200px">
-        <div class="field-label">Job name <span class="hint">(short, optional)</span></div>
-        <input type="text" id="job-name" placeholder="e.g. mnist baseline v3" style="width:100%">
-      </div>
-      <div class="field-group" style="flex:2; min-width:240px">
-        <div class="field-label">Description <span class="hint">(optional)</span></div>
-        <input type="text" id="job-description" placeholder="brief notes about this run" style="width:100%">
-      </div>
-    </div>
-
-    <!-- Code source tabs -->
-    <div class="mode-tabs">
-      <button class="mode-tab active" data-mode="paste" onclick="setMode('paste')">Paste Code</button>
-      <button class="mode-tab" data-mode="file" onclick="setMode('file')">Upload .py</button>
-      <button class="mode-tab" data-mode="repo" onclick="setMode('repo')">GitHub / GitLab</button>
-    </div>
-
-    <div id="mode-paste" class="mode-panel active">
-      <div class="row" style="margin-bottom:8px">
-        <select id="template-select" onchange="loadTemplate(this.value)" style="width:auto">
-          <option value="">— Insert template —</option>
-          <option value="hello-gpu">Hello GPU (PyTorch)</option>
-          <option value="save-artifact">Save artifact (model.pt + metrics)</option>
-          <option value="train-mnist">MNIST training (PyTorch)</option>
-          <option value="use-dataset">Read uploaded dataset</option>
-          <option value="hello-tf">Hello GPU (TensorFlow)</option>
-        </select>
-      </div>
-      <div id="editor-container"></div>
-      <textarea id="job-code" style="display:none"></textarea>
-    </div>
-
-    <div id="mode-file" class="mode-panel">
-      <input type="file" id="code-file" accept=".py">
-    </div>
-
-    <div id="mode-repo" class="mode-panel">
-      <div class="field-group" style="margin-bottom:8px">
-        <div class="field-label">Repository URL (HTTPS)</div>
-        <input type="url" id="repo-url" placeholder="https://github.com/username/repo" style="width:100%">
-      </div>
-      <div class="field-group">
-        <div class="field-label">Entrypoint</div>
-        <input type="text" id="entrypoint" value="main.py" style="width:200px">
-      </div>
-    </div>
-
-    <!-- requirements.txt — collapsible -->
-    <div class="collapse-toggle" onclick="toggleReqs()">
-      <span id="reqs-arrow">▸</span> Extra packages (requirements.txt)
-    </div>
-    <div id="reqs-panel" style="display:none">
-      <textarea id="job-requirements" placeholder="# one package per line, e.g.&#10;transformers==4.40.0&#10;datasets&#10;pandas" style="min-height:80px"></textarea>
-      <div class="hint" style="margin-top:4px">
-        ⚠ Якщо вказано requirements — задача отримає доступ до мережі для pip install (інакше: <code>--network none</code>).
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Options row -->
-    <div class="row">
-      <div class="field-group">
-        <div class="field-label">Runtime</div>
-        <select id="job-runtime"><option value="">Loading...</option></select>
-      </div>
-      <div class="field-group">
-        <div class="field-label">CPUs</div>
-        <input type="number" id="job-cpus" value="1" min="0.1" max="8" step="0.1" style="width:80px">
-      </div>
-      <div class="field-group">
-        <div class="field-label">Memory</div>
-        <input type="text" id="job-memory" value="2g" style="width:80px" placeholder="2g">
-      </div>
-      <div class="field-group">
-        <div class="field-label">Student ID</div>
-        <input type="text" id="student-id" placeholder="anonymous" style="width:130px">
-      </div>
-    </div>
-
-    <!-- API key -->
-    <div class="api-key-bar">
-      <span>API key:</span>
-      <input type="password" id="api-key" placeholder="(optional — paste key issued by admin)" autocomplete="off">
-      <button class="secondary" style="padding:6px 10px;font-size:.75rem" onclick="saveApiKey()">Save</button>
-      <button class="secondary" style="padding:6px 10px;font-size:.75rem" onclick="clearApiKey()">Clear</button>
-    </div>
-
-    <!-- Dataset upload -->
-    <div class="field-group">
-      <div class="field-label">Dataset (optional .zip — max 500 MB)</div>
-      <input type="file" id="dataset-file" accept=".zip">
-    </div>
-
-    <div style="display:flex; gap:10px; align-items:center">
-      <button onclick="submitJob()">&#9654; Submit Job</button>
-      <button class="secondary" onclick="cleanupJobs()" style="font-size:.8rem; padding:8px 14px">Clean finished</button>
-    </div>
-
-    <!-- Output panel -->
-    <div id="output-panel">
-      <div class="output-header">
-        <div class="job-meta">
-          <span class="job-name-label" id="out-job-name"></span>
-          <span>Job: <span class="job-id-label" id="out-job-id">—</span></span>
-          <span id="out-badge"></span>
-          <span id="out-gpu" style="color:#aaa"></span>
-          <span id="out-time" style="color:#666"></span>
-          <span id="out-student" style="color:#666; font-size:.75rem"></span>
-        </div>
-        <div class="output-tabs" id="out-tabs" style="display:none">
-          <button class="tab-btn active" onclick="showTab('stdout')">stdout</button>
-          <button class="tab-btn" onclick="showTab('stderr')">stderr</button>
-          <button class="tab-btn" id="tab-btn-artifacts" style="display:none" onclick="showTab('artifacts')">Artifacts</button>
-        </div>
-      </div>
-
-      <div id="out-live" style="display:none">
-        <div class="live-header">
-          <span class="spinner-icon"></span>
-          <span id="out-live-status">Waiting for GPU...</span>
-        </div>
-        <div id="out-live-log"></div>
-      </div>
-
-      <div id="out-final" style="display:none">
-        <div class="output-body stdout" id="out-stdout"></div>
-        <div class="output-body stderr" id="out-stderr" style="display:none"></div>
-        <div class="artifacts-list" id="out-artifacts" style="display:none"></div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- Jobs table -->
-<div class="card">
-  <h2>
-    Jobs
-    <span class="refresh-note">оновлюється кожні 2 сек · натисни рядок щоб побачити вивід</span>
-    <label style="float:right;font-size:.8rem;color:#aaa;font-weight:400;cursor:pointer">
-      <input type="checkbox" id="filter-mine" checked onchange="loadData()">
-      only my jobs
-    </label>
-  </h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Job</th><th>Status</th><th>GPU</th><th>Runtime</th>
-        <th>Student</th><th>Created</th><th>Action</th>
-      </tr>
-    </thead>
-    <tbody id="jobs-body"></tbody>
-  </table>
-</div>
-
-<script>
-// ── State ─────────────────────────────────────────────────────────────────────
-let activeJobId       = null;
-let activeTab         = 'stdout';
-let submitMode        = 'paste';
-let liveStream        = null;
-let lastClusterStatus = null;
-let monacoEditor      = null;
-
-// ── Editor helpers (Monaco with textarea fallback) ────────────────────────────
-function getCode() {
-  return monacoEditor ? monacoEditor.getValue() : document.getElementById('job-code').value;
-}
-function setCode(v) {
-  if (monacoEditor) monacoEditor.setValue(v || '');
-  else document.getElementById('job-code').value = v || '';
-}
-
-// ── Init Monaco ──────────────────────────────────────────────────────────────
-require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
-require(['vs/editor/editor.main'], function () {
-  monacoEditor = monaco.editor.create(document.getElementById('editor-container'), {
-    value: '# Python code here\nimport torch\nprint(torch.cuda.is_available())\n',
-    language: 'python',
-    theme: 'vs-dark',
-    automaticLayout: true,
-    fontSize: 13,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    tabSize: 4,
-  });
-});
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-(function init() {
-  const savedSid = localStorage.getItem('student_id');
-  if (savedSid) document.getElementById('student-id').value = savedSid;
-  document.getElementById('student-id').addEventListener('change', e => {
-    localStorage.setItem('student_id', e.target.value);
-  });
-
-  const savedKey = localStorage.getItem('api_key') || '';
-  if (savedKey) document.getElementById('api-key').value = savedKey;
-
-  loadRuntimes();
-  loadData();
-  setInterval(loadData, 2000);
-})();
-
-// ── API key handling ─────────────────────────────────────────────────────────
-function saveApiKey() {
-  const v = document.getElementById('api-key').value.trim();
-  localStorage.setItem('api_key', v);
-  alert(v ? 'API key збережено локально.' : 'Ключ очищено.');
-}
-function clearApiKey() {
-  document.getElementById('api-key').value = '';
-  localStorage.removeItem('api_key');
-}
-function authHeaders() {
-  const k = document.getElementById('api-key').value.trim();
-  return k ? { 'X-API-Key': k } : {};
-}
-
-// ── requirements.txt panel toggle ─────────────────────────────────────────────
-function toggleReqs() {
-  const p = document.getElementById('reqs-panel');
-  const a = document.getElementById('reqs-arrow');
-  const open = p.style.display === 'none';
-  p.style.display = open ? 'block' : 'none';
-  a.textContent = open ? '▾' : '▸';
-}
-
-// ── Submit mode tabs ──────────────────────────────────────────────────────────
-function setMode(mode) {
-  submitMode = mode;
-  document.querySelectorAll('.mode-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.mode === mode);
-  });
-  document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('mode-' + mode).classList.add('active');
-}
-
-// ── Code templates ────────────────────────────────────────────────────────────
 const TEMPLATES = {
   'hello-gpu': {
     runtime: 'pytorch-cu121',
@@ -555,363 +154,939 @@ print(f"Sum: {tf.reduce_sum(b).numpy():.2f}")
   },
 };
 
-function loadTemplate(key) {
-  if (!key) return;
-  const tpl = TEMPLATES[key];
-  if (!tpl) return;
-  if (getCode().trim() && !confirm('Замінити поточний код шаблоном?')) {
-    document.getElementById('template-select').value = '';
-    return;
-  }
-  setCode(tpl.code);
-  if (tpl.runtime) document.getElementById('job-runtime').value = tpl.runtime;
-  setMode('paste');
-  document.getElementById('template-select').value = '';
-}
+const fmtDuration = s => {
+  if (s == null) return '—';
+  if (s >= 3600) return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+  if (s >= 60)   return `${Math.floor(s/60)}m ${Math.floor(s%60)}s`;
+  return `${Math.round(s)}s`;
+};
 
-// ── Load runtimes ─────────────────────────────────────────────────────────────
-async function loadRuntimes() {
-  const data = await fetch('/runtimes').then(r => r.json());
-  const sel  = document.getElementById('job-runtime');
-  sel.innerHTML = '';
-  for (const [name, image] of Object.entries(data.runtimes)) {
-    const opt = document.createElement('option');
-    opt.value       = name;
-    opt.textContent = `${name}  (${image.split(':')[0].split('/').pop()})`;
-    sel.appendChild(opt);
-  }
-}
+const fmtSize = b => {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/(1024*1024)).toFixed(1) + ' MB';
+};
 
-// ── Dashboard data ────────────────────────────────────────────────────────────
-async function loadData() {
-  try {
-    const cluster = await fetch('/cluster-status').then(r => r.json());
-    lastClusterStatus = cluster;
-    document.getElementById('s-gpu-total').textContent  = cluster.gpu_summary.total;
-    document.getElementById('s-gpu-idle').textContent   = cluster.gpu_summary.idle;
-    document.getElementById('s-gpu-busy').textContent   = cluster.gpu_summary.busy;
-    document.getElementById('s-queued').textContent     = cluster.job_summary.queued;
-    document.getElementById('s-running').textContent    = cluster.job_summary.running;
-    document.getElementById('s-completed').textContent  = cluster.job_summary.completed;
+const apiHeaders = (apiKey) => apiKey ? { 'X-API-Key': apiKey } : {};
 
-    const gpus  = await fetch('/gpus').then(r => r.json());
-    const chips = document.getElementById('gpu-chips');
-    chips.innerHTML = '';
-    gpus.gpus.forEach(g => {
-      const chip = document.createElement('div');
-      chip.className   = `gpu-chip ${g.status}`;
-      chip.textContent = `GPU ${g.gpu_id}  ${g.status.toUpperCase()}`;
-      if (g.job_id) chip.title = `Job: ${g.job_id}`;
-      chips.appendChild(chip);
+// ─── Python syntax highlighter ───────────────────────────────────────────────
+const PY_KEYWORDS = ['import','from','def','class','return','if','else','elif','for','while','in','not','and','or','True','False','None','print','with','as','try','except','raise','pass','lambda','yield','self','async','await','global','nonlocal','assert','break','continue','finally','is','del'];
+
+function highlightPython(code) {
+  return code.split('\n').map(line => {
+    let html = line
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/(#.*)$/, '<span style="color:#6a9955">$1</span>')
+      .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span style="color:#ce9178">$1</span>');
+    PY_KEYWORDS.forEach(kw => {
+      html = html.replace(new RegExp(`\\b(${kw})\\b`, 'g'), '<span style="color:#569cd6">$1</span>');
     });
+    html = html.replace(/\b(\d+\.?\d*)\b/g, '<span style="color:#b5cea8">$1</span>');
+    return `<div style="display:block;min-height:1.6em">${html || ' '}</div>`;
+  }).join('');
+}
 
-    const jobs       = await fetch('/jobs').then(r => r.json());
-    const myStudent  = (document.getElementById('student-id').value.trim() || 'anonymous');
-    const filterMine = document.getElementById('filter-mine').checked;
-    const visible    = filterMine ? jobs.jobs.filter(j => j.student_id === myStudent) : jobs.jobs;
+// ─── UI primitives ───────────────────────────────────────────────────────────
+function Spinner({ size = 14 }) {
+  return (
+    <span style={{
+      display:'inline-block', width:size, height:size,
+      border:'2px solid #2a3050', borderTopColor:'#3b82f6',
+      borderRadius:'50%', animation:'spin 0.7s linear infinite', flexShrink:0,
+    }}/>
+  );
+}
 
-    const tbody = document.getElementById('jobs-body');
-    tbody.innerHTML = '';
-    if (visible.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#555;padding:20px">
-        ${filterMine ? 'У тебе ще немає задач. Зніми галочку "only my jobs" щоб побачити всі.' : 'Немає задач.'}
-      </td></tr>`;
+function Badge({ status }) {
+  const cfg = {
+    queued:    { bg:'#1e3a5f', color:'#60a5fa', label:'QUEUED' },
+    running:   { bg:'#3d2200', color:'#fb923c', label:'RUNNING' },
+    completed: { bg:'#0f2e1a', color:'#4ade80', label:'COMPLETED' },
+    failed:    { bg:'#2d0f0f', color:'#f87171', label:'FAILED' },
+    cancelled: { bg:'#1e1e2e', color:'#94a3b8', label:'CANCELLED' },
+  };
+  const c = cfg[status] || cfg.queued;
+  return (
+    <span style={{
+      background:c.bg, color:c.color, border:`1px solid ${c.color}33`,
+      borderRadius:4, padding:'2px 8px', fontSize:11, fontWeight:700,
+      letterSpacing:'0.05em', whiteSpace:'nowrap',
+    }}>{c.label}</span>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{
+      background:'#1e2130', border:'1px solid #2a3050',
+      borderRadius:10, padding:'16px 20px', flex:1, minWidth:110,
+    }}>
+      <div style={{ fontSize:11, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>{label}</div>
+      <div style={{ fontSize:28, fontWeight:700, color: color || '#e2e8f0', lineHeight:1 }}>{value}</div>
+    </div>
+  );
+}
+
+function GpuChip({ gpu }) {
+  const isIdle = gpu.status === 'idle';
+  return (
+    <div style={{
+      display:'flex', flexDirection:'column', gap:4,
+      background: isIdle ? '#0f2e1a' : '#2d1a00',
+      border:`1px solid ${isIdle ? '#166534' : '#92400e'}`,
+      borderRadius:8, padding:'10px 14px', minWidth:110,
+    }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <span style={{ width:8, height:8, borderRadius:'50%', background: isIdle ? '#4ade80' : '#fb923c', flexShrink:0 }}/>
+        <span style={{ fontWeight:600, fontSize:13 }}>GPU {gpu.gpu_id}</span>
+        <span style={{ marginLeft:'auto', fontSize:10, fontWeight:700, color: isIdle ? '#4ade80' : '#fb923c' }}>{gpu.status.toUpperCase()}</span>
+      </div>
+      {gpu.job_id && (
+        <div style={{ fontSize:11, color:'#fb923c', fontFamily:'monospace' }}>
+          {gpu.job_id.substring(0, 8)}…
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Code editor with syntax highlighting ────────────────────────────────────
+function CodeEditor({ value, onChange, height = 260 }) {
+  const taRef = useRef(null);
+  const hlRef = useRef(null);
+
+  const syncScroll = () => {
+    if (hlRef.current && taRef.current) {
+      hlRef.current.scrollTop  = taRef.current.scrollTop;
+      hlRef.current.scrollLeft = taRef.current.scrollLeft;
     }
-    visible.forEach(job => {
-      const tr      = document.createElement('tr');
-      const created = new Date(job.created_at).toLocaleTimeString();
-      if (job.job_id === activeJobId) tr.classList.add('active-row');
+  };
 
-      let actionBtn = '';
-      if (['queued', 'running'].includes(job.status)) {
-        actionBtn = `<button class="danger" style="padding:4px 10px;font-size:.78rem"
-          onclick="cancelJob('${job.job_id}',event)">Cancel</button>`;
-      } else {
-        actionBtn = `<button class="secondary" style="padding:4px 10px;font-size:.78rem"
-          onclick="repeatJob('${job.job_id}',event)" title="Заповнити форму даними цієї задачі">↻ Repeat</button>`;
+  const handleKeyDown = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ta = e.target;
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      const next = value.substring(0, start) + '    ' + value.substring(end);
+      onChange(next);
+      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 4; });
+    }
+  };
+
+  const lineCount = value.split('\n').length;
+  const lineNumbers = Array.from({length: lineCount}, (_, i) => i + 1).join('\n');
+
+  return (
+    <div style={{ position:'relative', borderRadius:6, overflow:'hidden', border:'1px solid #2a3050', height }}>
+      {/* Line numbers */}
+      <div style={{
+        position:'absolute', left:0, top:0, bottom:0, width:40,
+        background:'#0a0d14', borderRight:'1px solid #1a2040',
+        padding:'12px 6px 12px 0', fontFamily:'monospace', fontSize:12, color:'#3b4465',
+        textAlign:'right', userSelect:'none', lineHeight:1.6, whiteSpace:'pre',
+        overflow:'hidden', zIndex:2, pointerEvents:'none',
+      }}>{lineNumbers}</div>
+      {/* Highlight overlay */}
+      <div ref={hlRef} style={{
+        position:'absolute', left:40, top:0, right:0, bottom:0,
+        padding:'12px 12px 12px 8px',
+        fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
+        fontSize:13, lineHeight:1.6, whiteSpace:'pre', overflow:'auto',
+        pointerEvents:'none', zIndex:1, color:'#e2e8f0',
+      }} dangerouslySetInnerHTML={{ __html: highlightPython(value || '') }} />
+      {/* Real textarea */}
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onScroll={syncScroll}
+        onKeyDown={handleKeyDown}
+        spellCheck={false}
+        style={{
+          position:'absolute', inset:0, paddingLeft:48,
+          padding:'12px 12px 12px 48px',
+          background:'transparent', color:'transparent',
+          caretColor:'#e2e8f0', border:'none', outline:'none', resize:'none',
+          fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
+          fontSize:13, lineHeight:1.6, zIndex:3, width:'100%', height:'100%',
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Output Panel (live stream + final view) ─────────────────────────────────
+function OutputPanel({ jobId, apiKey, onClose }) {
+  const [job, setJob]         = useState(null);
+  const [tab, setTab]         = useState('stdout');
+  const [liveLines, setLive]  = useState([]);
+  const [elapsed, setElapsed] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const logRef = useRef(null);
+  const sseRef = useRef(null);
+
+  // Fetch initial job + poll while needed
+  useEffect(() => {
+    if (!jobId) return;
+    let alive = true;
+
+    const refresh = async () => {
+      try {
+        const j = await fetch(`/jobs/${jobId}`, { headers: apiHeaders(apiKey) }).then(r => r.json());
+        if (!alive) return;
+        setJob(j);
+        if (['completed','failed','cancelled'].includes(j.status)) setFinished(true);
+      } catch(e) {}
+    };
+    refresh();
+    const iv = setInterval(refresh, 2000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [jobId, apiKey]);
+
+  // SSE for live logs (only while not finished)
+  useEffect(() => {
+    if (!jobId || finished) return;
+    setLive([]);
+    if (sseRef.current) sseRef.current.close();
+    const es = new EventSource(`/jobs/${jobId}/logs/stream`);
+    sseRef.current = es;
+
+    es.onmessage = (e) => {
+      let data; try { data = JSON.parse(e.data); } catch { return; }
+      if (data.type === 'end') { setFinished(true); es.close(); return; }
+      if (data.type === 'stdout' || data.type === 'stderr') {
+        setLive(prev => [...prev, { stream: data.type, line: data.line || '' }]);
       }
+    };
+    es.onerror = () => { es.close(); };
+    return () => es.close();
+  }, [jobId, finished]);
 
-      const jobLabel = job.name
-        ? `<strong style="color:#fff">${escapeHtml(job.name)}</strong>
-           <span style="color:#666;font-size:.75rem"> ${job.job_id.substring(0,8)}</span>`
-        : `${job.job_id.substring(0,8)}…`;
+  // ETA timer for running jobs
+  useEffect(() => {
+    if (job?.status !== 'running' || !job?.started_at) return;
+    const startMs = new Date(job.started_at).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - startMs) / 1000));
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [job?.status, job?.started_at]);
 
-      tr.innerHTML = `
-        <td>${jobLabel}</td>
-        <td><span class="badge ${job.status}">${job.status}</span></td>
-        <td>${job.gpu_id ?? '—'}</td>
-        <td>${job.runtime}</td>
-        <td style="color:#aaa;font-size:.8rem">${escapeHtml(job.student_id || '—')}</td>
-        <td>${created}</td>
-        <td>${actionBtn}</td>
-      `;
-      tr.onclick = () => openOutput(job.job_id);
-      tbody.appendChild(tr);
-    });
+  // Auto-scroll
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [liveLines.length]);
 
-    if (activeJobId) updateOutputHeader();
-
-  } catch(e) {
-    console.error('Load error:', e);
-  }
-}
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  })[c]);
-}
-
-// ── Submit ────────────────────────────────────────────────────────────────────
-async function submitJob() {
-  const fd = new FormData();
-
-  if (submitMode === 'paste') {
-    const code = getCode().trim();
-    if (!code) { alert('Введи код'); return; }
-    fd.append('code', code);
-  } else if (submitMode === 'file') {
-    const file = document.getElementById('code-file').files[0];
-    if (!file) { alert('Вибери .py файл'); return; }
-    fd.append('code_file', file);
-  } else if (submitMode === 'repo') {
-    const url = document.getElementById('repo-url').value.trim();
-    if (!url) { alert('Введи URL репозиторію'); return; }
-    fd.append('repo_url', url);
-    fd.append('entrypoint', document.getElementById('entrypoint').value.trim() || 'main.py');
+  if (!job) {
+    return (
+      <div style={{
+        background:'#141824', border:'1px solid #2a3050', borderRadius:10,
+        padding:30, textAlign:'center', color:'#475569',
+      }}>
+        <Spinner /> <span style={{ marginLeft:10 }}>Loading job…</span>
+      </div>
+    );
   }
 
-  fd.append('runtime',     document.getElementById('job-runtime').value);
-  fd.append('cpus',        document.getElementById('job-cpus').value);
-  fd.append('memory',      document.getElementById('job-memory').value);
-  fd.append('student_id',  document.getElementById('student-id').value.trim() || 'anonymous');
-  fd.append('name',        document.getElementById('job-name').value.trim());
-  fd.append('description', document.getElementById('job-description').value.trim());
-
-  const reqs = document.getElementById('job-requirements').value.trim();
-  if (reqs) fd.append('requirements', reqs);
-
-  const dataset = document.getElementById('dataset-file').files[0];
-  if (dataset) fd.append('dataset', dataset);
-
-  const res  = await fetch('/submit-job-form', {
-    method: 'POST', body: fd, headers: authHeaders(),
-  });
-  const data = await res.json();
-
-  if (res.ok) {
-    document.getElementById('dataset-file').value = '';
-    openOutput(data.job_id);
-  } else {
-    alert('Помилка: ' + (data.detail || JSON.stringify(data)));
-  }
-  loadData();
-}
-
-// ── Output ────────────────────────────────────────────────────────────────────
-async function openOutput(jobId) {
-  activeJobId = jobId;
-  document.getElementById('output-panel').style.display = 'block';
-  document.getElementById('out-job-id').textContent = jobId.substring(0,8) + '…';
-  document.getElementById('output-panel').scrollIntoView({ behavior:'smooth', block:'nearest' });
-
-  let job;
-  try { job = await fetch(`/jobs/${jobId}`).then(r => r.json()); }
-  catch(e) { return; }
-
-  updateOutputHeaderFromJob(job);
-
-  if (['queued', 'running'].includes(job.status)) {
-    showLivePanel();
-    updateLiveStatus(job);
-    startStream(jobId);
-  } else {
-    showFinalPanel(job);
-  }
-}
-
-function showLivePanel() {
-  document.getElementById('out-live').style.display  = 'block';
-  document.getElementById('out-final').style.display = 'none';
-  document.getElementById('out-tabs').style.display  = 'none';
-  document.getElementById('out-live-log').innerHTML  = '';
-}
-
-function showFinalPanel(job) {
-  if (liveStream) { liveStream.close(); liveStream = null; }
-
-  document.getElementById('out-live').style.display  = 'none';
-  document.getElementById('out-final').style.display = 'block';
-  document.getElementById('out-tabs').style.display  = 'flex';
-
-  document.getElementById('out-stdout').textContent = job.stdout?.trim() || '(no output)';
-  document.getElementById('out-stderr').textContent = job.stderr?.trim() || '(empty)';
-
+  const isRunning = job.status === 'running';
+  const isQueued  = job.status === 'queued';
+  const showLive  = (isRunning || isQueued) && !finished;
+  const stderrLines = (job.stderr || '').split('\n').filter(Boolean);
+  const stdoutLines = (job.stdout || '').split('\n').filter(Boolean);
   const artifacts = job.artifacts || [];
-  const tabBtn    = document.getElementById('tab-btn-artifacts');
-  const artDiv    = document.getElementById('out-artifacts');
 
-  if (artifacts.length > 0) {
-    tabBtn.style.display = 'inline-block';
-    tabBtn.textContent   = `Artifacts (${artifacts.length})`;
-    artDiv.innerHTML     = artifacts.map(a => `
-      <div class="artifact-item">
-        <span>
-          <span class="artifact-name">${escapeHtml(a.name)}</span>
-          <span class="artifact-size">${formatSize(a.size)}</span>
-        </span>
-        <a class="artifact-dl" href="/jobs/${job.job_id}/artifacts/${encodeURIComponent(a.name)}" download="${escapeHtml(a.name)}">
-          &#8595; Download
-        </a>
-      </div>`).join('');
-  } else {
-    tabBtn.style.display = 'none';
-  }
-  showTab(activeTab === 'artifacts' && artifacts.length === 0 ? 'stdout' : activeTab);
+  return (
+    <div style={{ background:'#141824', border:'1px solid #2a3050', borderRadius:10, overflow:'hidden', animation:'fadeIn 0.2s ease' }}>
+      {/* Header */}
+      <div style={{ background:'#1a1f35', borderBottom:'1px solid #2a3050', padding:'10px 16px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+        {isRunning ? (
+          <>
+            <span style={{ width:10, height:10, borderRadius:'50%', background:'#fb923c', boxShadow:'0 0 8px #fb923c', flexShrink:0, animation:'pulse 1.5s infinite' }}/>
+            <span style={{ color:'#fb923c', fontWeight:600 }}>Running on GPU {job.gpu_id ?? '?'}</span>
+            <span style={{ color:'#64748b' }}>· {elapsed}s elapsed</span>
+          </>
+        ) : isQueued ? (
+          <>
+            <span style={{ width:10, height:10, borderRadius:'50%', background:'#60a5fa', flexShrink:0, animation:'pulse 1.5s infinite' }}/>
+            <span style={{ color:'#60a5fa', fontWeight:600 }}>
+              Queued{job.queue_position != null ? ` — position ${job.queue_position}` : ''}
+            </span>
+          </>
+        ) : (
+          <>
+            <span style={{ width:10, height:10, borderRadius:'50%', background: job.status === 'completed' ? '#4ade80' : '#f87171', flexShrink:0 }}/>
+            <span style={{ fontWeight:600 }}>{job.name || job.job_id.substring(0,8) + '…'}</span>
+            <Badge status={job.status} />
+            {job.started_at && job.finished_at && (
+              <span style={{ color:'#64748b', fontSize:12 }}>
+                · {fmtDuration((new Date(job.finished_at) - new Date(job.started_at))/1000)}
+              </span>
+            )}
+          </>
+        )}
+        {job.student_id && <span style={{ color:'#64748b', fontSize:12 }}>· @{job.student_id}</span>}
+        <button onClick={onClose} style={{
+          marginLeft:'auto', background:'none', border:'1px solid #2a3050', color:'#64748b',
+          borderRadius:6, padding:'4px 10px', fontSize:12,
+        }}>✕ Close</button>
+      </div>
+
+      {/* Tabs (only when finished) */}
+      {!showLive && (
+        <div style={{ display:'flex', gap:0, borderBottom:'1px solid #2a3050' }}>
+          {['stdout', 'stderr', ...(artifacts.length ? ['artifacts'] : [])].map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              background: tab === t ? '#0d1117' : 'transparent',
+              color: tab === t ? '#e2e8f0' : '#64748b',
+              border:'none', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent',
+              padding:'8px 16px', fontSize:13, fontWeight:500, textTransform:'capitalize',
+            }}>
+              {t}{t === 'stderr' && stderrLines.length > 0 && (
+                <span style={{ marginLeft:6, background:'#2d0f0f', color:'#f87171', borderRadius:4, padding:'0 5px', fontSize:11 }}>!</span>
+              )}
+              {t === 'artifacts' && artifacts.length > 0 && (
+                <span style={{ marginLeft:6, background:'#1e3a5f', color:'#60a5fa', borderRadius:4, padding:'0 5px', fontSize:11 }}>{artifacts.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Body */}
+      {showLive ? (
+        <div ref={logRef} style={{
+          background:'#0d1117', fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
+          fontSize:12, lineHeight:1.7, padding:'12px 16px', height:280, overflowY:'auto',
+        }}>
+          {liveLines.length === 0 ? (
+            <div style={{ display:'flex', alignItems:'center', gap:8, color:'#64748b' }}>
+              <Spinner /> {isQueued ? 'Waiting for free GPU…' : 'Waiting for output…'}
+            </div>
+          ) : liveLines.map((l, i) => (
+            <div key={i} style={{ color: l.stream === 'stderr' ? '#f87171' : '#4ade80' }}>{l.line || ' '}</div>
+          ))}
+        </div>
+      ) : tab === 'artifacts' ? (
+        <div style={{ background:'#0d1117', padding:'12px 16px', minHeight:80 }}>
+          {artifacts.map(a => (
+            <div key={a.name} style={{
+              display:'flex', alignItems:'center', justifyContent:'space-between',
+              padding:'8px 12px', borderRadius:6, marginBottom:6, background:'#141824',
+              border:'1px solid #2a3050', fontFamily:'monospace', fontSize:13,
+            }}>
+              <span><span style={{ color:'#93c5fd' }}>{a.name}</span> <span style={{ color:'#64748b', fontSize:11, marginLeft:6 }}>{fmtSize(a.size)}</span></span>
+              <a download href={`/jobs/${jobId}/artifacts/${encodeURIComponent(a.name)}`} style={{
+                background:'#1e3a5f', color:'#60a5fa', borderRadius:4, padding:'3px 10px',
+                fontSize:11, fontWeight:600, textDecoration:'none',
+              }}>↓ Download</a>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{
+          background:'#0d1117', fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
+          fontSize:12, lineHeight:1.7, padding:'12px 16px', minHeight:120, maxHeight:300,
+          overflowY:'auto', color: tab === 'stderr' ? '#f87171' : '#4ade80', whiteSpace:'pre-wrap',
+        }}>
+          {(tab === 'stderr' ? stderrLines : stdoutLines).map((l, i) => <div key={i}>{l || ' '}</div>)}
+          {((tab === 'stderr' ? stderrLines : stdoutLines).length === 0) && (
+            <span style={{ color:'#3b4465' }}>No {tab === 'stderr' ? 'errors' : 'output'}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
+// ─── Submit Form ─────────────────────────────────────────────────────────────
+function SubmitForm({ runtimes, apiKey, studentId, onStudentIdChange, onSubmit, prefill }) {
+  const [mode, setMode]     = useState('paste');
+  const [code, setCode]     = useState('# Python code here\nimport torch\nprint(torch.cuda.is_available())\n');
+  const [codeFile, setCodeFile]     = useState(null);
+  const [repoUrl, setRepoUrl]       = useState('');
+  const [entrypoint, setEntrypoint] = useState('main.py');
+  const [name, setName]             = useState('');
+  const [description, setDescription] = useState('');
+  const [requirements, setRequirements] = useState('');
+  const [reqsOpen, setReqsOpen]   = useState(false);
+  const [runtime, setRuntime]     = useState('pytorch-cu121');
+  const [cpus, setCpus]           = useState(1);
+  const [memory, setMemory]       = useState('2g');
+  const [dataset, setDataset]     = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const datasetRef = useRef(null);
+  const fileRef    = useRef(null);
 
-// ── SSE log stream ────────────────────────────────────────────────────────────
-function startStream(jobId) {
-  if (liveStream) { liveStream.close(); liveStream = null; }
+  // Load draft on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.code) setCode(d.code);
+        if (d.requirements) { setRequirements(d.requirements); setReqsOpen(true); }
+        if (d.runtime) setRuntime(d.runtime);
+        if (d.cpus) setCpus(d.cpus);
+        if (d.memory) setMemory(d.memory);
+      }
+    } catch(e) {}
+  }, []);
 
-  const logEl = document.getElementById('out-live-log');
-  liveStream  = new EventSource(`/jobs/${jobId}/logs/stream`);
-
-  liveStream.onmessage = async (e) => {
-    let data;
-    try { data = JSON.parse(e.data); } catch { return; }
-
-    if (data.type === 'end') {
-      liveStream.close(); liveStream = null;
-      const job = await fetch(`/jobs/${jobId}`).then(r => r.json());
-      updateOutputHeaderFromJob(job);
-      showFinalPanel(job);
-      return;
-    }
-
-    if (data.type === 'stdout' || data.type === 'stderr') {
-      const span = document.createElement('span');
-      span.className   = data.type;
-      span.textContent = (data.line || '') + '\n';
-      logEl.appendChild(span);
-      logEl.scrollTop  = logEl.scrollHeight;
-    }
-  };
-  liveStream.onerror = () => {
-    if (liveStream) { liveStream.close(); liveStream = null; }
-  };
-}
-
-// ── Header ────────────────────────────────────────────────────────────────────
-async function updateOutputHeader() {
-  if (!activeJobId) return;
-  try {
-    const job = await fetch(`/jobs/${activeJobId}`).then(r => r.json());
-    updateOutputHeaderFromJob(job);
-    updateLiveStatus(job);
-    if (!['queued', 'running'].includes(job.status)
-        && document.getElementById('out-live').style.display !== 'none') {
-      showFinalPanel(job);
-    }
-  } catch(e) {}
-}
-
-function updateOutputHeaderFromJob(job) {
-  document.getElementById('out-job-name').textContent = job.name || '';
-  document.getElementById('out-badge').innerHTML =
-    `<span class="badge ${job.status}">${job.status}</span>`;
-  document.getElementById('out-gpu').textContent =
-    job.gpu_id != null ? `GPU ${job.gpu_id}` : '';
-  document.getElementById('out-student').textContent =
-    job.student_id ? `@${job.student_id}` : '';
-
-  if (job.started_at && job.finished_at) {
-    const sec = ((new Date(job.finished_at) - new Date(job.started_at)) / 1000).toFixed(1);
-    document.getElementById('out-time').textContent = `${sec}s`;
-  } else {
-    document.getElementById('out-time').textContent = '';
-  }
-}
-
-function updateLiveStatus(job) {
-  const el = document.getElementById('out-live-status');
-  if (!el) return;
-  if (job.status === 'queued') {
-    const pos = job.queue_position;
-    const avg = lastClusterStatus?.avg_execution_time_seconds;
-    if (pos != null && avg != null) {
-      const wait = Math.max(0, Math.ceil((pos - 1) * avg));
-      el.textContent = `Queued — position ${pos}, est. wait ~${wait}s (avg job ${avg}s)`;
-    } else if (pos != null) {
-      el.textContent = `Queued — position ${pos} in queue`;
+  // Apply prefill from Repeat
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.repo_url) {
+      setMode('repo');
+      setRepoUrl(prefill.repo_url);
+      setEntrypoint(prefill.entrypoint || 'main.py');
     } else {
-      el.textContent = 'Queued — waiting for free GPU...';
+      setMode('paste');
+      setCode(prefill.code || '');
     }
-  } else if (job.status === 'running') {
-    el.textContent = `Running on GPU ${job.gpu_id ?? '?'}`;
-  }
-}
+    setRuntime(prefill.runtime || 'pytorch-cu121');
+    setCpus(prefill.cpus ?? 1);
+    setMemory(prefill.memory || '2g');
+    setName(prefill.name || '');
+    setDescription(prefill.description || '');
+    if (prefill.requirements) { setRequirements(prefill.requirements); setReqsOpen(true); }
+    if (prefill.has_dataset) {
+      setTimeout(() => alert('⚠ До цієї задачі був прикріплений датасет. Прикріпи його заново якщо потрібно.'), 300);
+    }
+  }, [prefill]);
 
-function showTab(tab) {
-  activeTab = tab;
-  document.getElementById('out-stdout').style.display    = tab === 'stdout'    ? 'block' : 'none';
-  document.getElementById('out-stderr').style.display    = tab === 'stderr'    ? 'block' : 'none';
-  document.getElementById('out-artifacts').style.display = tab === 'artifacts' ? 'block' : 'none';
-  document.querySelectorAll('#out-tabs .tab-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent.toLowerCase().startsWith(tab));
-  });
-}
+  // Auto-save draft (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          code, requirements, runtime, cpus, memory,
+          saved_at: new Date().toISOString(),
+        }));
+        setSavedFlash(true);
+        setTimeout(() => setSavedFlash(false), 1400);
+      } catch(e) {}
+    }, 800);
+    return () => clearTimeout(t);
+  }, [code, requirements, runtime, cpus, memory]);
 
-// ── Actions ───────────────────────────────────────────────────────────────────
-async function cancelJob(jobId, e) {
-  e.stopPropagation();
-  await fetch(`/jobs/${jobId}/cancel`, { method:'POST' });
-  loadData();
-}
+  const clearDraft = () => {
+    if (!confirm('Очистити збережений код і налаштування?')) return;
+    localStorage.removeItem(DRAFT_KEY);
+    setCode(''); setRequirements(''); setCpus(1); setMemory('2g');
+  };
 
-async function cleanupJobs() {
-  const res  = await fetch('/jobs/cleanup', { method:'DELETE' });
-  const data = await res.json();
-  alert(`Видалено ${data.removed_jobs} завершених задач`);
-  loadData();
-}
-
-async function repeatJob(jobId, e) {
-  e.stopPropagation();
-  const job = await fetch(`/jobs/${jobId}`).then(r => r.json());
-
-  if (job.repo_url) {
-    setMode('repo');
-    document.getElementById('repo-url').value   = job.repo_url;
-    document.getElementById('entrypoint').value = job.entrypoint || 'main.py';
-  } else {
+  const loadTemplate = (key) => {
+    if (!key) return;
+    const tpl = TEMPLATES[key];
+    if (!tpl) return;
+    if (code.trim() && !confirm('Замінити поточний код шаблоном?')) return;
+    setCode(tpl.code);
+    if (tpl.runtime) setRuntime(tpl.runtime);
     setMode('paste');
-    setCode(job.code || '');
-  }
+  };
 
-  document.getElementById('job-runtime').value     = job.runtime;
-  document.getElementById('job-cpus').value        = job.cpus;
-  document.getElementById('job-memory').value      = job.memory;
-  document.getElementById('job-name').value        = job.name || '';
-  document.getElementById('job-description').value = job.description || '';
-  document.getElementById('job-requirements').value = job.requirements || '';
-  if (job.requirements) {
-    document.getElementById('reqs-panel').style.display = 'block';
-    document.getElementById('reqs-arrow').textContent = '▾';
-  }
+  const submit = async () => {
+    // Notification permission on first submit
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
 
-  document.querySelector('.card h2').scrollIntoView({behavior:'smooth', block:'start'});
+    const fd = new FormData();
+    if (mode === 'paste') {
+      if (!code.trim()) return alert('Введи код');
+      fd.append('code', code);
+    } else if (mode === 'file') {
+      if (!codeFile) return alert('Вибери .py файл');
+      fd.append('code_file', codeFile);
+    } else if (mode === 'repo') {
+      if (!repoUrl.trim()) return alert('Введи URL репозиторію');
+      fd.append('repo_url', repoUrl.trim());
+      fd.append('entrypoint', entrypoint.trim() || 'main.py');
+    }
+    fd.append('runtime', runtime);
+    fd.append('cpus', cpus);
+    fd.append('memory', memory);
+    fd.append('student_id', studentId || 'anonymous');
+    fd.append('name', name);
+    fd.append('description', description);
+    if (requirements.trim()) fd.append('requirements', requirements);
+    if (dataset) fd.append('dataset', dataset);
 
-  if (job.has_dataset) {
-    setTimeout(() => alert('⚠ До цієї задачі був прикріплений датасет. Прикріпи його заново якщо потрібно.'), 200);
-  }
+    setSubmitting(true);
+    try {
+      const res  = await fetch('/submit-job-form', { method:'POST', body: fd, headers: apiHeaders(apiKey) });
+      const data = await res.json();
+      if (!res.ok) {
+        alert('Помилка: ' + (data.detail || JSON.stringify(data)));
+        return;
+      }
+      setDataset(null);
+      if (datasetRef.current) datasetRef.current.value = '';
+      onSubmit(data.job_id);
+    } catch(e) {
+      alert('Network error: ' + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const labelStyle = { fontSize:12, color:'#94a3b8', display:'block', marginBottom:6 };
+  const sectionLabel = { fontSize:11, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 };
+
+  return (
+    <section style={{
+      background:'#1e2130', border:'1px solid #2a3050', borderRadius:10,
+      padding:'20px', display:'flex', flexDirection:'column', gap:14,
+    }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={sectionLabel}>Submit Job</div>
+        <span style={{
+          fontSize:11, color:'#4ade80', opacity: savedFlash ? 1 : 0,
+          transition:'opacity 0.25s',
+        }}>💾 Auto-saved</span>
+      </div>
+
+      {/* Mode tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:'1px solid #2a3050' }}>
+        {[['paste','Paste Code'], ['file','Upload .py'], ['repo','GitHub / GitLab']].map(([m, label]) => (
+          <button key={m} onClick={() => setMode(m)} style={{
+            background: mode === m ? '#13172b' : 'transparent',
+            color: mode === m ? '#e2e8f0' : '#64748b',
+            border:'none', borderBottom: mode === m ? '2px solid #3b82f6' : '2px solid transparent',
+            padding:'8px 14px', fontSize:13, fontWeight: mode === m ? 600 : 500,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Mode-specific input */}
+      {mode === 'paste' && (
+        <div>
+          <div style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center', flexWrap:'wrap' }}>
+            <select onChange={e => { loadTemplate(e.target.value); e.target.value = ''; }}
+              style={{ padding:'6px 10px', fontSize:12 }}>
+              <option value="">— Insert template —</option>
+              <option value="hello-gpu">Hello GPU (PyTorch)</option>
+              <option value="save-artifact">Save artifact</option>
+              <option value="train-mnist">MNIST training</option>
+              <option value="use-dataset">Read uploaded dataset</option>
+              <option value="hello-tf">Hello GPU (TensorFlow)</option>
+            </select>
+            <button onClick={clearDraft} style={{
+              background:'#1a1f35', color:'#94a3b8', border:'1px solid #2a3050',
+              borderRadius:5, padding:'5px 10px', fontSize:11,
+            }}>Clear draft</button>
+          </div>
+          <CodeEditor value={code} onChange={setCode} />
+        </div>
+      )}
+
+      {mode === 'file' && (
+        <div>
+          <label style={labelStyle}>Python file (.py — max 200 KB)</label>
+          <input ref={fileRef} type="file" accept=".py"
+            onChange={e => setCodeFile(e.target.files[0])}
+            style={{ width:'100%', padding:'8px 10px' }} />
+          {codeFile && (
+            <div style={{ fontSize:12, color:'#64748b', marginTop:6 }}>
+              📄 {codeFile.name} ({fmtSize(codeFile.size)})
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'repo' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          <div>
+            <label style={labelStyle}>Repository URL (HTTPS)</label>
+            <input type="url" value={repoUrl} onChange={e => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/username/repo"
+              style={{ width:'100%', padding:'8px 10px' }} />
+          </div>
+          <div>
+            <label style={labelStyle}>Entrypoint</label>
+            <input value={entrypoint} onChange={e => setEntrypoint(e.target.value)}
+              style={{ width:200, padding:'8px 10px' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Job name + description */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:10 }}>
+        <div>
+          <label style={labelStyle}>Job name <span style={{ color:'#475569' }}>(optional)</span></label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            placeholder="e.g. mnist baseline v3"
+            style={{ width:'100%', padding:'8px 10px' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Description <span style={{ color:'#475569' }}>(optional)</span></label>
+          <input value={description} onChange={e => setDescription(e.target.value)}
+            placeholder="brief notes about this run"
+            style={{ width:'100%', padding:'8px 10px' }} />
+        </div>
+      </div>
+
+      {/* requirements (collapsible) */}
+      <div>
+        <div onClick={() => setReqsOpen(!reqsOpen)} style={{
+          cursor:'pointer', fontSize:12, color:'#94a3b8', userSelect:'none',
+          display:'flex', alignItems:'center', gap:6, padding:'4px 0',
+        }}>
+          <span style={{ transition:'transform 0.15s', display:'inline-block', transform: reqsOpen ? 'rotate(90deg)' : 'none' }}>▸</span>
+          Extra packages (requirements.txt)
+        </div>
+        {reqsOpen && (
+          <div style={{ animation:'fadeIn 0.15s ease' }}>
+            <textarea value={requirements} onChange={e => setRequirements(e.target.value)}
+              placeholder={`# one package per line, e.g.\ntransformers==4.40.0\ndatasets`}
+              style={{ width:'100%', minHeight:80, padding:'10px 12px', fontFamily:'monospace' }} />
+            <div style={{ fontSize:11, color:'#64748b', marginTop:4 }}>
+              ⚠ Якщо є requirements — задача отримає bridge-мережу для pip install (інакше: <code style={{ color:'#94a3b8' }}>--network none</code>).
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Runtime + CPUs + Memory + Student */}
+      <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr 1.5fr', gap:10 }}>
+        <div>
+          <label style={labelStyle}>Runtime</label>
+          <select value={runtime} onChange={e => setRuntime(e.target.value)}
+            style={{ width:'100%', padding:'8px 10px' }}>
+            {Object.entries(runtimes || {}).map(([k, v]) => (
+              <option key={k} value={k}>{k} ({v.split(':')[0].split('/').pop()})</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>CPUs</label>
+          <input type="number" min={0.1} max={8} step={0.1} value={cpus}
+            onChange={e => setCpus(Number(e.target.value))}
+            style={{ width:'100%', padding:'8px 10px' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Memory</label>
+          <input value={memory} onChange={e => setMemory(e.target.value)}
+            placeholder="2g"
+            style={{ width:'100%', padding:'8px 10px' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Student ID</label>
+          <input value={studentId} onChange={e => onStudentIdChange(e.target.value)}
+            placeholder="anonymous"
+            style={{ width:'100%', padding:'8px 10px' }} />
+        </div>
+      </div>
+
+      {/* Dataset */}
+      <div>
+        <label style={labelStyle}>Dataset <span style={{ color:'#475569' }}>(optional .zip — max 500 MB)</span></label>
+        <input ref={datasetRef} type="file" accept=".zip"
+          onChange={e => setDataset(e.target.files[0])}
+          style={{ width:'100%', padding:'8px 10px' }} />
+        {dataset && (
+          <div style={{ fontSize:12, color:'#64748b', marginTop:6 }}>
+            🗜 {dataset.name} ({fmtSize(dataset.size)})
+          </div>
+        )}
+      </div>
+
+      <button onClick={submit} disabled={submitting} style={{
+        background: submitting ? '#1e3a5f' : '#3b82f6', color:'#fff',
+        border:'none', borderRadius:7, padding:'10px 20px', fontSize:14, fontWeight:600,
+        display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+        opacity: submitting ? 0.7 : 1, transition:'background 0.15s',
+      }}>
+        {submitting ? <><Spinner size={14}/> Submitting…</> : '⚡ Submit Job'}
+      </button>
+    </section>
+  );
 }
+
+// ─── Jobs Table ──────────────────────────────────────────────────────────────
+function JobsTable({ jobs, selectedId, studentId, onSelect, onCancel, onRepeat }) {
+  const [filterMine, setFilterMine] = useState(true);
+
+  const visible = filterMine
+    ? jobs.filter(j => (j.student_id || 'anonymous') === (studentId || 'anonymous'))
+    : jobs;
+
+  return (
+    <section style={{ background:'#1e2130', border:'1px solid #2a3050', borderRadius:10, overflow:'hidden' }}>
+      <div style={{ padding:'14px 20px', borderBottom:'1px solid #2a3050', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div style={{ fontSize:11, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>Jobs</div>
+        <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+          <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#94a3b8', cursor:'pointer' }}>
+            <input type="checkbox" checked={filterMine} onChange={e => setFilterMine(e.target.checked)} style={{ accentColor:'#3b82f6' }}/>
+            only my jobs
+          </label>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'pulse 2s infinite' }}/>
+            <span style={{ fontSize:11, color:'#64748b' }}>Live · 2s</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom:'1px solid #2a3050' }}>
+              {['Job','Status','GPU','Runtime','Student','Created','Action'].map(h => (
+                <th key={h} style={{ textAlign:'left', padding:'8px 12px', fontSize:11, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign:'center', padding:30, color:'#475569', fontSize:13 }}>
+                {filterMine ? 'У тебе ще немає задач. Зніми галочку щоб побачити всі.' : 'Немає задач.'}
+              </td></tr>
+            )}
+            {visible.map(job => (
+              <tr key={job.job_id}
+                onClick={() => onSelect(job.job_id)}
+                style={{
+                  borderBottom:'1px solid #1a1f35',
+                  cursor:'pointer',
+                  background: selectedId === job.job_id ? '#1a2540' : 'transparent',
+                }}
+                onMouseEnter={e => { if (selectedId !== job.job_id) e.currentTarget.style.background='#161c2e'; }}
+                onMouseLeave={e => { if (selectedId !== job.job_id) e.currentTarget.style.background='transparent'; }}
+              >
+                <td style={{ padding:'10px 12px', fontWeight:500 }}>
+                  {job.name ? (
+                    <>
+                      <div>{job.name}</div>
+                      <div style={{ fontSize:11, color:'#64748b', fontFamily:'monospace' }}>
+                        {job.job_id.substring(0,8)}{job.description ? ' · ' + job.description : ''}
+                      </div>
+                    </>
+                  ) : (
+                    <span style={{ fontFamily:'monospace' }}>{job.job_id.substring(0,12)}…</span>
+                  )}
+                </td>
+                <td style={{ padding:'10px 12px' }}><Badge status={job.status}/></td>
+                <td style={{ padding:'10px 12px', color:'#94a3b8', fontSize:12 }}>{job.gpu_id ?? '—'}</td>
+                <td style={{ padding:'10px 12px', color:'#64748b', fontSize:12, fontFamily:'monospace' }}>{job.runtime}</td>
+                <td style={{ padding:'10px 12px', color:'#94a3b8', fontSize:12 }}>{job.student_id || '—'}</td>
+                <td style={{ padding:'10px 12px', color:'#64748b', fontSize:12 }}>
+                  {new Date(job.created_at).toLocaleTimeString()}
+                </td>
+                <td style={{ padding:'10px 12px' }}>
+                  {['queued','running'].includes(job.status) ? (
+                    <button onClick={e => { e.stopPropagation(); onCancel(job.job_id); }} style={{
+                      background:'#2d0f0f', color:'#f87171', border:'1px solid #7f1d1d',
+                      borderRadius:5, padding:'3px 8px', fontSize:11,
+                    }}>Cancel</button>
+                  ) : (
+                    <button onClick={e => { e.stopPropagation(); onRepeat(job); }} style={{
+                      background:'#1e2d4a', color:'#60a5fa', border:'1px solid #1e3a5f',
+                      borderRadius:5, padding:'3px 8px', fontSize:11,
+                    }}>↻ Repeat</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ─── Root Dashboard ──────────────────────────────────────────────────────────
+function Dashboard() {
+  const [cluster, setCluster] = useState(null);
+  const [gpus, setGpus]       = useState([]);
+  const [jobs, setJobs]       = useState([]);
+  const [runtimes, setRuntimes] = useState({});
+  const [selectedJobId, setSelectedJobId] = useState(null);
+  const [prefill, setPrefill] = useState(null);
+  const [apiKey, setApiKey]   = useState(localStorage.getItem('api_key') || '');
+  const [apiKeyDraft, setApiKeyDraft] = useState(localStorage.getItem('api_key') || '');
+  const [studentId, setStudentId]     = useState(localStorage.getItem('student_id') || '');
+  const lastStatusRef = useRef({});
+
+  const refresh = useCallback(async () => {
+    try {
+      const [c, g, j] = await Promise.all([
+        fetch('/cluster-status').then(r => r.json()),
+        fetch('/gpus').then(r => r.json()),
+        fetch('/jobs').then(r => r.json()),
+      ]);
+      setCluster(c); setGpus(g.gpus || []); setJobs(j.jobs || []);
+
+      // Browser notifications for status changes (only own jobs)
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const myStudent = studentId || 'anonymous';
+        for (const job of j.jobs || []) {
+          const prev = lastStatusRef.current[job.job_id];
+          const terminal = ['completed','failed','cancelled'];
+          if (prev && !terminal.includes(prev) && terminal.includes(job.status)
+              && (job.student_id || 'anonymous') === myStudent) {
+            const icon = job.status === 'completed' ? '✓' : (job.status === 'failed' ? '✗' : '✕');
+            const label = job.name || job.job_id.substring(0,8);
+            const dur = (job.started_at && job.finished_at)
+              ? ` in ${fmtDuration((new Date(job.finished_at) - new Date(job.started_at))/1000)}`
+              : '';
+            const n = new Notification(`${icon} ${label} — ${job.status}`, {
+              body: `Finished${dur}`, tag: job.job_id,
+            });
+            n.onclick = () => { window.focus(); setSelectedJobId(job.job_id); n.close(); };
+          }
+          lastStatusRef.current[job.job_id] = job.status;
+        }
+      }
+    } catch(e) { console.error('refresh failed', e); }
+  }, [studentId]);
+
+  useEffect(() => {
+    fetch('/runtimes').then(r => r.json()).then(d => setRuntimes(d.runtimes || {}));
+    refresh();
+    const iv = setInterval(refresh, POLL_MS);
+    return () => clearInterval(iv);
+  }, [refresh]);
+
+  useEffect(() => { localStorage.setItem('student_id', studentId); }, [studentId]);
+
+  const saveApiKey = () => {
+    localStorage.setItem('api_key', apiKeyDraft);
+    setApiKey(apiKeyDraft);
+  };
+  const clearApiKey = () => {
+    localStorage.removeItem('api_key');
+    setApiKey(''); setApiKeyDraft('');
+  };
+
+  const cancelJob = async (jobId) => {
+    await fetch(`/jobs/${jobId}/cancel`, { method:'POST' });
+    refresh();
+  };
+  const repeatJob = (job) => { setPrefill(job); window.scrollTo({ top: 0, behavior:'smooth' }); };
+  const cleanup   = async () => {
+    const r = await fetch('/jobs/cleanup', { method:'DELETE' });
+    const d = await r.json();
+    alert(`Видалено ${d.removed_jobs} завершених задач`);
+    refresh();
+  };
+
+  const stats = cluster ? {
+    gpu_total: cluster.gpu_summary.total,
+    gpu_idle:  cluster.gpu_summary.idle,
+    gpu_busy:  cluster.gpu_summary.busy,
+    queued:    cluster.job_summary.queued,
+    running:   cluster.job_summary.running,
+    completed: cluster.job_summary.completed,
+  } : { gpu_total:0, gpu_idle:0, gpu_busy:0, queued:0, running:0, completed:0 };
+
+  return (
+    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
+      {/* Header */}
+      <header style={{
+        background:'#13172b', borderBottom:'1px solid #2a3050',
+        padding:'0 24px', height:56, display:'flex', alignItems:'center', gap:20,
+        position:'sticky', top:0, zIndex:100,
+      }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{
+            width:28, height:28, background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+            borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14,
+          }}>⚡</div>
+          <span style={{ fontWeight:700, fontSize:16, letterSpacing:'-0.02em' }}>GPU Job Scheduler</span>
+        </div>
+        <div style={{ width:1, height:24, background:'#2a3050' }}/>
+        <a href="/admin" style={{ color:'#60a5fa', textDecoration:'none', fontSize:13, fontWeight:500 }}>Admin Panel →</a>
+        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
+          <input value={apiKeyDraft} onChange={e => setApiKeyDraft(e.target.value)}
+            type="password" placeholder="API Key (optional)" autoComplete="off"
+            style={{ padding:'6px 10px', width:200, fontSize:12, fontFamily:'monospace' }}/>
+          <button onClick={saveApiKey} style={{
+            background: apiKey === apiKeyDraft && apiKey ? '#0f2e1a' : '#1e3a5f',
+            color: apiKey === apiKeyDraft && apiKey ? '#4ade80' : '#60a5fa',
+            border:`1px solid ${apiKey === apiKeyDraft && apiKey ? '#166534' : '#1e40af'}`,
+            borderRadius:6, padding:'6px 12px', fontSize:12,
+          }}>{apiKey === apiKeyDraft && apiKey ? '✓ Saved' : 'Save'}</button>
+          <button onClick={clearApiKey} style={{
+            background:'#1a1f35', color:'#94a3b8', border:'1px solid #2a3050',
+            borderRadius:6, padding:'6px 10px', fontSize:12,
+          }}>Clear</button>
+        </div>
+      </header>
+
+      <main style={{ flex:1, padding:'24px', maxWidth:1400, margin:'0 auto', width:'100%' }}>
+
+        {/* Stats Row */}
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20 }}>
+          <StatCard label="GPU Total"  value={stats.gpu_total} />
+          <StatCard label="GPU Idle"   value={stats.gpu_idle}  color="#4ade80" />
+          <StatCard label="GPU Busy"   value={stats.gpu_busy}  color="#fb923c" />
+          <StatCard label="In Queue"   value={stats.queued}    color="#60a5fa" />
+          <StatCard label="Running"    value={stats.running}   color="#fb923c" />
+          <StatCard label="Completed"  value={stats.completed} color="#4ade80" />
+        </div>
+
+        {/* GPU Status */}
+        <section style={{
+          background:'#1e2130', border:'1px solid #2a3050', borderRadius:10,
+          padding:'16px 20px', marginBottom:20,
+        }}>
+          <div style={{ fontSize:11, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12, fontWeight:600 }}>GPU Status</div>
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+            {gpus.length === 0
+              ? <div style={{ color:'#475569', fontSize:13 }}>Loading…</div>
+              : gpus.map(g => <GpuChip key={g.gpu_id} gpu={g}/>)}
+          </div>
+        </section>
+
+        {/* Two-column: Submit + Output */}
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:20, marginBottom:20 }}>
+          <SubmitForm
+            runtimes={runtimes}
+            apiKey={apiKey}
+            studentId={studentId}
+            onStudentIdChange={setStudentId}
+            onSubmit={(jid) => { setSelectedJobId(jid); refresh(); }}
+            prefill={prefill}
+          />
+          {selectedJobId ? (
+            <OutputPanel jobId={selectedJobId} apiKey={apiKey} onClose={() => setSelectedJobId(null)}/>
+          ) : (
+            <div style={{
+              background:'#141824', border:'1px dashed #2a3050', borderRadius:10,
+              display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+              gap:8, minHeight:300, color:'#3b4465', padding:30,
+            }}>
+              <span style={{ fontSize:36 }}>▶</span>
+              <span style={{ fontSize:13 }}>Submit a job or click a row below to see output</span>
+            </div>
+          )}
+        </div>
+
+        {/* Cleanup button */}
+        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
+          <button onClick={cleanup} style={{
+            background:'#1a1f35', color:'#94a3b8', border:'1px solid #2a3050',
+            borderRadius:6, padding:'6px 12px', fontSize:12,
+          }}>🗑 Clean finished jobs</button>
+        </div>
+
+        {/* Jobs Table */}
+        <JobsTable
+          jobs={jobs}
+          selectedId={selectedJobId}
+          studentId={studentId}
+          onSelect={setSelectedJobId}
+          onCancel={cancelJob}
+          onRepeat={repeatJob}
+        />
+
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard />);
+{% endraw %}
 </script>
 </body>
 </html>
