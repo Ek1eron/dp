@@ -1,0 +1,10 @@
+runtime,run,status,compute_ms,total_s
+pytorch-cu121,1,completed,49.3,3.0267276763916016
+pytorch-cu121,2,completed,48.5,3.026932954788208
+pytorch-cu121,3,completed,49.4,3.0270464420318604
+pytorch-cu118,1,completed,110.4,7.760114431381226
+pytorch-cu118,2,completed,54.5,3.02498197555542
+pytorch-cu118,3,completed,54.3,3.024289608001709
+tensorflow,1,completed,169.6,8.044671297073364
+tensorflow,2,completed,156.6,4.036763668060303
+tensorflow,3,completed,164.7,4.037968635559082

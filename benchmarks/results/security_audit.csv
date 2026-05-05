@@ -1,0 +1,24 @@
+#,Категорія,Перевірка,Опис,Очікуваний HTTP,Отриманий HTTP,Результат,Деталь,Затримка (мс)
+1,AST Code Safety,eval() blocked,Код з eval() відхиляється на рівні AST до постановки в чергу,400,400,PASS,Code safety check failed: Use of eval() is not allowed,2.5
+2,AST Code Safety,exec() blocked,Код з exec() відхиляється на рівні AST,400,400,PASS,Code safety check failed: Use of exec() is not allowed,2.1
+3,AST Code Safety,compile() blocked,compile() — динамічна генерація коду заблокована,400,400,PASS,Code safety check failed: Use of compile() is not allowed,2.4
+4,AST Code Safety,__import__() blocked,__import__() — обхід стандартного import заблокований,400,400,PASS,Code safety check failed: Use of __import__() is not allowed,2.2
+5,AST Code Safety,Syntax error rejected,Код з синтаксичною помилкою повертає 400 (не 500),400,400,PASS,"Code safety check failed: Syntax error: '(' was never closed (<unknown>, line 1)",1.9
+6,AST Code Safety,Code > 200 KB rejected,Код більший за 200 КБ відхиляється,400,400,PASS,Code safety check failed: Code exceeds 200 KB size limit,4.9
+7,Requirements Safety,-e (editable) blocked,Локальні editable installs заблоковані,400,400,PASS,Disallowed line in requirements: '-e ./local_pkg',2.4
+8,Requirements Safety,git+ URL blocked,Встановлення з git репозиторіїв заблоковане,400,400,PASS,Disallowed line in requirements: 'git+https://github.com/evil/payload',2.1
+9,Requirements Safety,-i (index-url) blocked,Кастомний PyPI-сервер (зловмисний mirror) заблокований,400,400,PASS,Disallowed line in requirements: '-i https://evil.example.com',1.9
+10,Requirements Safety,--find-links blocked,--find-links до довільного URL заблокований,400,400,PASS,Disallowed line in requirements: '--find-links http://evil.com',2.2
+11,Requirements Safety,file: URL blocked,Встановлення з file:// (локальна файлова система) заблоковане,400,400,PASS,Disallowed line in requirements: 'file:///etc/passwd',2.2
+12,Requirements Safety,Absolute path blocked,Абсолютний шлях /path/to/pkg заблокований,400,400,PASS,Disallowed line in requirements: '/etc/secret_package',2.2
+13,Input Validation,Unknown runtime → 400,Невідомий runtime відхиляється,400,400,PASS,"Unsupported runtime 'malicious-runtime'. Allowed: ['pytorch-cu121', 'pytorch-cu1",2.2
+14,Input Validation,cpus > 8 → 422,Запит більше 8 CPU відхиляється валідатором,422,422,PASS,"[{'type': 'value_error', 'loc': ['body', 'cpus'], 'msg': 'Value error, cpus must be between 0.1 and 8.0', 'input': 99.0, 'ctx': {'error': {}}}]",2.0
+15,Input Validation,Invalid memory format → 422,Некоректний формат memory (без суфікса) відхиляється,422,422,PASS,"[{'type': 'value_error', 'loc': ['body', 'memory'], 'msg': 'Value error, memory must end with m, g, mb or gb', 'input': '1024', 'ctx': {'error': {}}}]",1.7
+16,Input Validation,Empty code → 422,Порожній код відхиляється валідатором,422,422,PASS,"[{'type': 'value_error', 'loc': ['body', 'code'], 'msg': 'Value error, code must not be empty', 'input': '   ', 'ctx': {'error': {}}}]",2.2
+17,Input Validation,Non-.py file → 400,Завантаження .txt файлу замість .py відхиляється,400,400,PASS,Only .py files are accepted,2.7
+18,Input Validation,Non-zip dataset → 400,Датасет не у форматі ZIP відхиляється,400,400,PASS,Dataset must be a .zip archive,2.4
+19,Repo URL Validation,Arbitrary host blocked,git clone з довільного хоста заблокований (тільки GitHub/GitLab),400,400,PASS,Only public GitHub/GitLab HTTPS URLs are allowed,2.0
+20,Repo URL Validation,GitHub URL accepted,Легітимний GitHub URL приймається (format validation),201,201,PASS,,6.8
+21,Rate Limiting,Queue limit → 429,Студент не може поставити >3 задач одночасно,429,429,PASS,Queue limit: student 'audit_1777963129' already has 3 active job(s). Max: 3,6.6
+22,Admin Auth,No admin key → 401,Admin endpoint без ключа повертає 401,401,401,PASS,Invalid admin key,2.1
+23,Admin Auth,Wrong admin key → 401,Неправильний admin ключ повертає 401,401,401,PASS,Invalid admin key,1.9

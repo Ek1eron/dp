@@ -7,6 +7,8 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+<!-- Monaco Editor (the engine that powers VS Code) -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -169,23 +171,6 @@ const fmtSize = b => {
 
 const apiHeaders = (apiKey) => apiKey ? { 'X-API-Key': apiKey } : {};
 
-// ─── Python syntax highlighter ───────────────────────────────────────────────
-const PY_KEYWORDS = ['import','from','def','class','return','if','else','elif','for','while','in','not','and','or','True','False','None','print','with','as','try','except','raise','pass','lambda','yield','self','async','await','global','nonlocal','assert','break','continue','finally','is','del'];
-
-function highlightPython(code) {
-  return code.split('\n').map(line => {
-    let html = line
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/(#.*)$/, '<span style="color:#6a9955">$1</span>')
-      .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span style="color:#ce9178">$1</span>');
-    PY_KEYWORDS.forEach(kw => {
-      html = html.replace(new RegExp(`\\b(${kw})\\b`, 'g'), '<span style="color:#569cd6">$1</span>');
-    });
-    html = html.replace(/\b(\d+\.?\d*)\b/g, '<span style="color:#b5cea8">$1</span>');
-    return `<div style="display:block;min-height:1.6em">${html || ' '}</div>`;
-  }).join('');
-}
-
 // ─── UI primitives ───────────────────────────────────────────────────────────
 function Spinner({ size = 14 }) {
   return (
@@ -250,67 +235,88 @@ function GpuChip({ gpu }) {
   );
 }
 
-// ─── Code editor with syntax highlighting ────────────────────────────────────
-function CodeEditor({ value, onChange, height = 260 }) {
-  const taRef = useRef(null);
-  const hlRef = useRef(null);
+// ─── Code editor (Monaco — same engine as VS Code) ───────────────────────────
+function CodeEditor({ value, onChange, height = 280 }) {
+  const containerRef = useRef(null);
+  const editorRef    = useRef(null);
+  const onChangeRef  = useRef(onChange);
+  const [loaded, setLoaded] = useState(false);
 
-  const syncScroll = () => {
-    if (hlRef.current && taRef.current) {
-      hlRef.current.scrollTop  = taRef.current.scrollTop;
-      hlRef.current.scrollLeft = taRef.current.scrollLeft;
+  // Keep the latest onChange in a ref so the Monaco listener always sees current
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  // Initialize Monaco once (loader.js is loaded in <head>)
+  useEffect(() => {
+    let disposed = false;
+    let attempts = 0;
+
+    const init = () => {
+      if (typeof window.require === 'undefined') {
+        // loader.js not yet attached — retry briefly
+        if (attempts++ < 60) setTimeout(init, 50);
+        return;
+      }
+      window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+      window.require(['vs/editor/editor.main'], () => {
+        if (disposed || !containerRef.current) return;
+
+        editorRef.current = window.monaco.editor.create(containerRef.current, {
+          value:     value || '',
+          language:  'python',
+          theme:     'vs-dark',
+          automaticLayout:      true,
+          fontSize:             13,
+          fontFamily:           "'Cascadia Code','Fira Code','Consolas',monospace",
+          minimap:              { enabled: false },
+          scrollBeyondLastLine: false,
+          tabSize:              4,
+          insertSpaces:         true,
+          padding:              { top: 12, bottom: 12 },
+          renderLineHighlight:  'line',
+          smoothScrolling:      true,
+          cursorBlinking:       'smooth',
+        });
+
+        editorRef.current.onDidChangeModelContent(() => {
+          onChangeRef.current(editorRef.current.getValue());
+        });
+
+        setLoaded(true);
+      });
+    };
+
+    init();
+
+    return () => {
+      disposed = true;
+      if (editorRef.current) {
+        editorRef.current.dispose();
+        editorRef.current = null;
+      }
+    };
+  }, []);
+
+  // Sync prop -> editor (template loading, Repeat, draft restore)
+  useEffect(() => {
+    if (editorRef.current && value !== editorRef.current.getValue()) {
+      editorRef.current.setValue(value || '');
     }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const ta = e.target;
-      const start = ta.selectionStart, end = ta.selectionEnd;
-      const next = value.substring(0, start) + '    ' + value.substring(end);
-      onChange(next);
-      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 4; });
-    }
-  };
-
-  const lineCount = value.split('\n').length;
-  const lineNumbers = Array.from({length: lineCount}, (_, i) => i + 1).join('\n');
+  }, [value]);
 
   return (
-    <div style={{ position:'relative', borderRadius:6, overflow:'hidden', border:'1px solid #2a3050', height }}>
-      {/* Line numbers */}
-      <div style={{
-        position:'absolute', left:0, top:0, bottom:0, width:40,
-        background:'#0a0d14', borderRight:'1px solid #1a2040',
-        padding:'12px 6px 12px 0', fontFamily:'monospace', fontSize:12, color:'#3b4465',
-        textAlign:'right', userSelect:'none', lineHeight:1.6, whiteSpace:'pre',
-        overflow:'hidden', zIndex:2, pointerEvents:'none',
-      }}>{lineNumbers}</div>
-      {/* Highlight overlay */}
-      <div ref={hlRef} style={{
-        position:'absolute', left:40, top:0, right:0, bottom:0,
-        padding:'12px 12px 12px 8px',
-        fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
-        fontSize:13, lineHeight:1.6, whiteSpace:'pre', overflow:'auto',
-        pointerEvents:'none', zIndex:1, color:'#e2e8f0',
-      }} dangerouslySetInnerHTML={{ __html: highlightPython(value || '') }} />
-      {/* Real textarea */}
-      <textarea
-        ref={taRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onScroll={syncScroll}
-        onKeyDown={handleKeyDown}
-        spellCheck={false}
-        style={{
-          position:'absolute', inset:0, paddingLeft:48,
-          padding:'12px 12px 12px 48px',
-          background:'transparent', color:'transparent',
-          caretColor:'#e2e8f0', border:'none', outline:'none', resize:'none',
-          fontFamily:"'Cascadia Code','Fira Code','Consolas',monospace",
-          fontSize:13, lineHeight:1.6, zIndex:3, width:'100%', height:'100%',
-        }}
-      />
+    <div style={{
+      position:'relative', height, borderRadius:6, overflow:'hidden',
+      border:'1px solid #2a3050', background:'#1e1e1e',
+    }}>
+      {!loaded && (
+        <div style={{
+          position:'absolute', inset:0, display:'flex', alignItems:'center',
+          justifyContent:'center', gap:10, color:'#64748b', fontSize:13, zIndex:1,
+        }}>
+          <Spinner /> <span>Loading Monaco editor…</span>
+        </div>
+      )}
+      <div ref={containerRef} style={{ width:'100%', height:'100%' }} />
     </div>
   );
 }

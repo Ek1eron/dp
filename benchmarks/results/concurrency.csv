@@ -1,0 +1,5 @@
+level,submitted,completed,failed,timeout,wave_time_s,throughput_jobs_per_s,race_detected
+1,1,1,0,0,2.54,0.393,False
+5,5,5,0,0,17.48,0.286,False
+10,10,10,0,0,37.27,0.268,False
+20,20,20,0,0,68.62,0.291,False
