@@ -9,7 +9,8 @@ import secrets
 import shutil
 import uuid
 import zipfile
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import redis
@@ -63,7 +64,24 @@ MAX_REQUIREMENTS_SIZE = 10 * 1024
 
 # ── App ───────────────────────────────────────────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
-app = FastAPI(title="GPU Job Scheduler", version="2.1.0")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    log.info("=" * 50)
+    log.info("GPU Job Scheduler Master starting (v2.1)")
+    log.info(f"GPU_COUNT={GPU_COUNT} | REDIS={REDIS_HOST}:{REDIS_PORT}")
+    log.info(f"MAX_QUEUE_PER_STUDENT={MAX_QUEUE_PER_STUDENT} | MAX_DATASET={MAX_DATASET_SIZE_MB}MB")
+    log.info(f"Admin: {'enabled' if ADMIN_API_KEY else 'DISABLED (set ADMIN_API_KEY to enable)'}")
+    log.info(f"Student API keys: {'required' if REQUIRE_STUDENT_KEY else 'optional'}")
+    log.info(f"Runtimes: {list(RUNTIME_PROFILES.keys())}")
+    log.info("=" * 50)
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    initialize_gpus()
+    yield
+
+
+app = FastAPI(title="GPU Job Scheduler", version="2.1.0", lifespan=lifespan)
 
 
 # ── Pydantic model (JSON API) ─────────────────────────────────────────────────
@@ -156,7 +174,7 @@ def require_admin(x_admin_key: str | None = Header(default=None)):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def iter_job_keys():
     """Yield only job:{uuid} keys, skipping job:logs:{uuid} (Redis lists)."""
-    for key in r.keys("job:*"):
+    for key in r.scan_iter("job:*", count=100):
         if key.startswith("job:logs:"):
             continue
         yield key
@@ -207,7 +225,7 @@ def _build_job_data(
         "gpu_id":           None,
         "container_name":   None,
         "cancel_requested": False,
-        "created_at":       datetime.utcnow().isoformat(),
+        "created_at":       datetime.now(timezone.utc).isoformat(),
         "started_at":       None,
         "finished_at":      None,
         "stdout":           "",
@@ -248,28 +266,13 @@ def initialize_gpus():
                 "gpu_id":     gpu_id,
                 "status":     "idle",
                 "job_id":     None,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }))
             initialized += 1
     if initialized:
         log.info(f"Initialized {initialized} GPU slot(s) in Redis")
     else:
         log.info("GPU slots already exist in Redis — skipping init")
-
-
-# ── Lifecycle ─────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-def startup_event():
-    log.info("=" * 50)
-    log.info("GPU Job Scheduler Master starting (v2.1)")
-    log.info(f"GPU_COUNT={GPU_COUNT} | REDIS={REDIS_HOST}:{REDIS_PORT}")
-    log.info(f"MAX_QUEUE_PER_STUDENT={MAX_QUEUE_PER_STUDENT} | MAX_DATASET={MAX_DATASET_SIZE_MB}MB")
-    log.info(f"Admin: {'enabled' if ADMIN_API_KEY else 'DISABLED (set ADMIN_API_KEY to enable)'}")
-    log.info(f"Student API keys: {'required' if REQUIRE_STUDENT_KEY else 'optional'}")
-    log.info(f"Runtimes: {list(RUNTIME_PROFILES.keys())}")
-    log.info("=" * 50)
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    initialize_gpus()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -434,7 +437,7 @@ async def submit_job_form(
 
 # ── Job queries ───────────────────────────────────────────────────────────────
 @app.get("/jobs")
-def list_jobs(status: str = None):
+def list_jobs(status: str | None = None):
     jobs = []
     for key in iter_job_keys():
         raw = r.get(key)
@@ -458,6 +461,15 @@ def get_job(job_id: str):
             job["queue_position"] = (pos + 1) if pos is not None else None
         except Exception:
             job["queue_position"] = None
+    if job.get("started_at") and job.get("finished_at"):
+        try:
+            s = datetime.fromisoformat(job["started_at"])
+            e = datetime.fromisoformat(job["finished_at"])
+            job["execution_time_seconds"] = round((e - s).total_seconds(), 2)
+        except Exception:
+            job["execution_time_seconds"] = None
+    else:
+        job["execution_time_seconds"] = None
     return job
 
 
@@ -472,7 +484,7 @@ def cancel_job(job_id: str):
     job["cancel_requested"] = True
     if job["status"] == "queued":
         job["status"]      = "cancelled"
-        job["finished_at"] = datetime.utcnow().isoformat()
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
     r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
     log.info(f"Job {job_id[:8]} cancel requested")
     return {"job_id": job_id, "status": job["status"], "cancel_requested": True}
@@ -588,7 +600,7 @@ def cluster_status():
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 @app.delete("/jobs/cleanup")
-def cleanup_jobs():
+def cleanup_jobs(_=Depends(require_admin)):
     removed = 0
     for key in iter_job_keys():
         raw = r.get(key)
@@ -603,6 +615,9 @@ def cleanup_jobs():
                 d = JOBS_DIR / f"{job_id}{suffix}"
                 if d.exists():
                     shutil.rmtree(d, ignore_errors=True)
+            py_file = JOBS_DIR / f"{job_id}.py"
+            if py_file.exists():
+                py_file.unlink()
             removed += 1
     log.info(f"Cleanup: removed {removed} finished job(s)")
     return {"removed_jobs": removed}
@@ -690,7 +705,7 @@ def admin_kill_job(job_id: str, _=Depends(require_admin)):
     job["cancel_requested"] = True
     if job["status"] == "queued":
         job["status"]      = "cancelled"
-        job["finished_at"] = datetime.utcnow().isoformat()
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
     r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
     log.warning(f"Admin killed job {job_id[:8]}")
     return {"job_id": job_id, "status": job["status"]}
@@ -711,7 +726,7 @@ def create_api_key(payload: ApiKeyCreate, _=Depends(require_admin)):
     record = {
         "student_id": student_id,
         "name":       payload.name.strip() or student_id,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     r.set(f"apikey:{api_key}", json.dumps(record))
     r.sadd("apikeys_set", api_key)

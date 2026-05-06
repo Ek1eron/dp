@@ -557,12 +557,14 @@ class TestMonitoring:
 class TestCleanup:
 
     def test_cleanup_removes_finished_jobs(self):
-        """DELETE /jobs/cleanup видаляє завершені задачі."""
+        """DELETE /jobs/cleanup видаляє завершені задачі (потребує admin-ключ)."""
+        if not ADMIN_KEY:
+            pytest.skip("ADMIN_API_KEY not set — cleanup test skipped")
         res = submit_job('print("to be cleaned")')
         job_id = res.json()["job_id"]
         wait_for_job(job_id)
 
-        del_res = requests.delete(f"{BASE_URL}/jobs/cleanup")
+        del_res = requests.delete(f"{BASE_URL}/jobs/cleanup", headers=admin_headers())
         assert del_res.status_code == 200
         assert "removed_jobs" in del_res.json()
         assert del_res.json()["removed_jobs"] >= 1
