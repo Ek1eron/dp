@@ -306,9 +306,10 @@ docker compose restart
 docker compose logs -f worker
 ```
 
-**Очистити завершені задачі:**
+**Очистити завершені задачі (потребує admin-ключ):**
 ```bash
-curl -X DELETE http://localhost:8001/jobs/cleanup
+curl -X DELETE http://localhost:8001/jobs/cleanup \
+  -H "X-Admin-Key: <ADMIN_API_KEY>"
 ```
 
 **Оновити систему після змін у коді:**

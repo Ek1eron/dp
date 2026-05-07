@@ -48,11 +48,12 @@
 Спробуй вставити такий код — система його **відхилить**:
 ```python
 import os
-os.system("rm -rf /")     # → 400 Bad Request (немає у нашому AST блокуванні,
-                           #   але `--cap-drop ALL` зробить це безпечним всередині)
-exec("print('hello')")    # → 400: Use of exec() is not allowed
-eval("1+1")               # → 400: Use of eval() is not allowed
-__import__("os")          # → 400: Use of __import__() is not allowed
+os.system("rm -rf /")  # виконається, але безпечно: --cap-drop ALL + --network none
+                       # обмежує можливості всередині контейнера
+
+exec("print('hello')")    # → 400: Use of exec() is not allowed  (AST блокування)
+eval("1+1")               # → 400: Use of eval() is not allowed  (AST блокування)
+__import__("os")          # → 400: Use of __import__() is not allowed (AST блокування)
 ```
 
 Спробуй злий `requirements.txt`:

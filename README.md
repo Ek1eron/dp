@@ -115,15 +115,25 @@ gpu-job-scheduler/
 │   └── app/
 │       └── worker.py           # scheduler + виконавець + стрімінг логів
 │
+├── benchmarks/                 # скрипти вимірювання продуктивності
+│   ├── security_audit.py       # 23 атаки / захисти → PNG
+│   ├── lifecycle.py            # фази задачі (черга → GPU → завершення) → PNG
+│   ├── cold_warm.py            # cold vs warm container startup → PNG
+│   ├── concurrency.py          # throughput + race condition detection → PNG
+│   ├── runtime_compare.py      # PyTorch cu121/cu118 vs TensorFlow → PNG
+│   ├── sse_vs_polling.py       # SSE latency vs polling → PNG
+│   ├── diagram.py              # архітектурні діаграми → PNG
+│   └── results/                # CSV + plots/*.png (генерується при запуску)
+│
 ├── examples/
 │   ├── train.py                # приклад тренування MLP
 │   ├── dataset.zip             # синтетичний датасет (CSV)
 │   └── _make_dataset.py        # генератор датасету
 │
 ├── tests/
-│   └── test_api.py             # pytest тести (50+ тестів)
+│   └── test_api.py             # pytest інтеграційні тести (50+ тестів)
 │
-├── logs/                       # логи worker-а (ротація)
+├── logs/                       # логи worker-а (ротація, .gitignore)
 ├── docker-compose.yml
 ├── .env.example                # шаблон змінних середовища
 ├── README.md
@@ -222,7 +232,7 @@ docker compose logs worker
 | `GET /jobs/{id}/artifacts` | Список артефактів |
 | `GET /jobs/{id}/artifacts/{file}` | Скачати артефакт |
 | `POST /jobs/{id}/cancel` | Скасувати задачу |
-| `DELETE /jobs/cleanup` | Видалити завершені |
+| `DELETE /jobs/cleanup` | Видалити завершені *(потребує X-Admin-Key)* |
 | `GET /gpus`, `/cluster-status` | Стан GPU і кластеру |
 | `GET /runtimes` | Список runtime профілів |
 | `GET /health` | Health check |
@@ -417,5 +427,39 @@ ADMIN_API_KEY=<key_from_env> pytest tests/test_api.py -v
 # Лише швидкі (без виконання задач на GPU):
 pytest tests/test_api.py::TestHealth tests/test_api.py::TestCodeSafety -v
 ```
+
+---
+
+## Бенчмарки та вимірювання
+
+Скрипти у `benchmarks/` вимірюють характеристики системи і генерують PNG-графіки для дипломної роботи. Вимагають запущеного `docker compose up -d` і активованого venv.
+
+```bash
+source venv/bin/activate
+pip install matplotlib numpy requests
+
+# Аудит безпеки (23 атаки → таблиця PASS/FAIL):
+ADMIN_API_KEY=<key> python benchmarks/security_audit.py
+
+# Розклад часу задачі (черга + виконання):
+python benchmarks/lifecycle.py
+
+# Cold vs warm container startup:
+python benchmarks/cold_warm.py
+
+# Throughput при 1/5/10/20 паралельних задачах:
+python benchmarks/concurrency.py
+
+# PyTorch cu121 / cu118 vs TensorFlow:
+python benchmarks/runtime_compare.py
+
+# SSE streaming vs HTTP polling latency:
+python benchmarks/sse_vs_polling.py
+
+# Архітектурні діаграми (без GPU):
+python benchmarks/diagram.py
+```
+
+Результати зберігаються у `benchmarks/results/` (CSV) та `benchmarks/results/plots/` (PNG).
 
 ---
