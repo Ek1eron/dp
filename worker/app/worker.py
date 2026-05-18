@@ -335,11 +335,11 @@ def execute_job(job_id: str, gpu_id: int):
                 f"pip install --quiet --disable-pip-version-check "
                 f"--no-cache-dir -r {shlex.quote(req_path)} && "
                 f"echo '== running user code ==' && "
-                f"python {shlex.quote(python_target)}"
+                f"python -u {shlex.quote(python_target)}"
             )
             workspace_cmd = ["sh", "-c", inner]
         else:
-            workspace_cmd = ["python", python_target]
+            workspace_cmd = ["python", "-u", python_target]
 
         # ── Build docker command ──────────────────────────────────────────────
         docker_cmd = [
