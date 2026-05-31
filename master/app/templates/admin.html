@@ -359,7 +359,7 @@ function AdminPanel({ adminKey, onLogout }) {
           <div style={{
             width:28, height:28, background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
             borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14,
-          }}>⚡</div>
+          }}></div>
           <span style={{ fontWeight:700, fontSize:16, letterSpacing:'-0.02em' }}>GPU Job Scheduler</span>
           <span style={{
             background:'#7c2d12', color:'#fed7aa', borderRadius:5,
@@ -578,7 +578,7 @@ function AdminPanel({ adminKey, onLogout }) {
                               <button onClick={() => forceKill(j.job_id)} style={{
                                 background:'#2d0f0f', color:'#f87171', border:'1px solid #7f1d1d',
                                 borderRadius:5, padding:'3px 8px', fontSize:11,
-                              }}>⚡ Force Kill</button>
+                              }}>Force Kill</button>
                             ) : <span style={{ color:'#475569' }}>—</span>}
                           </td>
                         </tr>

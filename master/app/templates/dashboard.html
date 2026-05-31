@@ -804,7 +804,7 @@ function SubmitForm({ runtimes, apiKey, studentId, onStudentIdChange, onSubmit, 
         display:'flex', alignItems:'center', justifyContent:'center', gap:8,
         opacity: submitting ? 0.7 : 1, transition:'background 0.15s',
       }}>
-        {submitting ? <><Spinner size={14}/> Submitting…</> : '⚡ Submit Job'}
+        {submitting ? <><Spinner size={14}/> Submitting…</> : ' Submit Job'}
       </button>
     </section>
   );
@@ -997,7 +997,7 @@ function Dashboard() {
           <div style={{
             width:28, height:28, background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
             borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14,
-          }}>⚡</div>
+          }}></div>
           <span style={{ fontWeight:700, fontSize:16, letterSpacing:'-0.02em' }}>GPU Job Scheduler</span>
         </div>
         <div style={{ width:1, height:24, background:'#2a3050' }}/>

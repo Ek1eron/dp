@@ -72,7 +72,8 @@ JOB_TIMEOUT     = int(os.getenv("JOB_TIMEOUT_SECONDS", "300"))
 JOB_TTL         = 60 * 60 * 24
 JOB_VOLUME_NAME = "gpu-job-scheduler-jobs"
 
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True,
+                socket_keepalive=True, health_check_interval=30)
 
 
 # ── Redis helpers ─────────────────────────────────────────────────────────────
@@ -82,7 +83,15 @@ def update_job(job_id: str, updates: dict):
         return
     job = json.loads(raw)
     job.update(updates)
-    r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
+    if updates.get("status") in ("completed", "failed", "cancelled"):
+        student_id = job.get("student_id")
+        with r.pipeline(transaction=False) as pipe:
+            pipe.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
+            if student_id:
+                pipe.srem(f"student:{student_id}:active", job_id)
+            pipe.execute()
+    else:
+        r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
 
 
 def get_job(job_id: str) -> dict | None:
@@ -91,7 +100,7 @@ def get_job(job_id: str) -> dict | None:
 
 
 # ── GPU management ────────────────────────────────────────────────────────────
-def get_free_gpu() -> int | None:
+def get_free_gpu(job_id: str) -> int | None:
     for gpu_id in range(GPU_COUNT):
         key = f"gpu:{gpu_id}"
         try:
@@ -109,6 +118,7 @@ def get_free_gpu() -> int | None:
                             break
                         pipe.multi()
                         gpu["status"]     = "busy"
+                        gpu["job_id"]     = job_id
                         gpu["updated_at"] = datetime.now(timezone.utc).isoformat()
                         pipe.set(key, json.dumps(gpu))
                         pipe.execute()
@@ -119,17 +129,6 @@ def get_free_gpu() -> int | None:
             log.error(f"Error checking gpu:{gpu_id}: {e}")
     return None
 
-
-def reserve_gpu_for_job(gpu_id: int, job_id: str):
-    key = f"gpu:{gpu_id}"
-    raw = r.get(key)
-    if not raw:
-        return
-    gpu = json.loads(raw)
-    gpu["status"]     = "busy"
-    gpu["job_id"]     = job_id
-    gpu["updated_at"] = datetime.now(timezone.utc).isoformat()
-    r.set(key, json.dumps(gpu))
 
 
 def release_gpu(gpu_id: int):
@@ -150,10 +149,8 @@ def check_real_gpu_count():
     log.info("Detecting available GPUs...")
     try:
         result = subprocess.run(
-            ["docker", "run", "--rm", "--gpus", "all",
-             "nvidia/cuda:12.3.2-base-ubuntu22.04",
-             "nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=30,
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
         )
         lines      = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
         real_count = len(lines)
@@ -222,21 +219,21 @@ def recover_stale_gpus():
 def _push_log(log_key: str, stream_type: str, line: str):
     entry = json.dumps({"type": stream_type, "line": line})
     r.rpush(log_key, entry)
-    r.expire(log_key, JOB_TTL)
 
 
 def _push_end(log_key: str, status: str):
     entry = json.dumps({"type": "end", "status": status})
     r.rpush(log_key, entry)
-    r.expire(log_key, JOB_TTL)
 
 
 def _stream_reader(stream, stream_type: str, lines_list: list, log_key: str):
-    """Thread target: reads a subprocess stream line by line and pushes to Redis."""
     for raw_line in stream:
         line = raw_line.rstrip("\n")
         lines_list.append(line)
-        _push_log(log_key, stream_type, line)
+        try:
+            _push_log(log_key, stream_type, line)
+        except Exception as e:
+            log.warning(f"Redis push failed for log line: {e}")
 
 
 # ── Repo cloning ──────────────────────────────────────────────────────────────
@@ -293,7 +290,6 @@ def execute_job(job_id: str, gpu_id: int):
         "container_name": f"job-{job_id}",
         "started_at":     datetime.now(timezone.utc).isoformat(),
     })
-    reserve_gpu_for_job(gpu_id, job_id)
 
     container_name  = f"job-{job_id}"
     code_file       = f"/jobs/{job_id}.py"
@@ -301,6 +297,7 @@ def execute_job(job_id: str, gpu_id: int):
     output_dir      = f"/jobs/{job_id}_output"
     requirements_fp = f"/jobs/{job_id}_requirements.txt"
     log_key         = f"job:logs:{job_id}"
+    r.expire(log_key, JOB_TTL)
 
     try:
         os.makedirs("/jobs", exist_ok=True)
@@ -418,7 +415,7 @@ def execute_job(job_id: str, gpu_id: int):
             if elapsed > 0 and elapsed % 30 == 0:
                 log.debug(f"[{short_id}] Still running... ({elapsed}s / {JOB_TIMEOUT}s)")
 
-            time.sleep(0.5)
+            time.sleep(2)
 
         t_out.join(timeout=5)
         t_err.join(timeout=5)
@@ -525,7 +522,7 @@ def main():
                 if not current or current.get("cancel_requested"):
                     log.info(f"Job {job_id[:8]} cancelled while waiting for GPU")
                     break
-                gpu_id = get_free_gpu()
+                gpu_id = get_free_gpu(job_id)
                 if gpu_id is None:
                     waited = int(time.time() - wait_start)
                     if waited % 10 == 0 and waited > 0:

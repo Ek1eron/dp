@@ -43,7 +43,8 @@ REQUIRE_STUDENT_KEY   = os.getenv("REQUIRE_STUDENT_KEY", "false").lower() == "tr
 JOB_TTL               = 60 * 60 * 24
 JOBS_DIR              = Path("/jobs")
 
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True,
+                socket_keepalive=True, health_check_interval=30)
 
 RUNTIME_PROFILES = {
     "pytorch-cu121": "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
@@ -126,9 +127,11 @@ def check_code_safety(code: str) -> tuple[bool, str]:
     except SyntaxError as e:
         return False, f"Syntax error: {e}"
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in DANGEROUS_BUILTINS:
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in DANGEROUS_BUILTINS:
                 return False, f"Use of {node.func.id}() is not allowed"
+            if isinstance(node.func, ast.Attribute) and node.func.attr in DANGEROUS_BUILTINS:
+                return False, f"Use of {node.func.attr}() via attribute is not allowed"
     return True, ""
 
 
@@ -181,14 +184,7 @@ def iter_job_keys():
 
 
 def count_student_active_jobs(student_id: str) -> int:
-    count = 0
-    for key in iter_job_keys():
-        raw = r.get(key)
-        if raw:
-            job = json.loads(raw)
-            if job.get("student_id") == student_id and job.get("status") in ("queued", "running"):
-                count += 1
-    return count
+    return r.scard(f"student:{student_id}:active")
 
 
 def _build_job_data(
@@ -247,8 +243,11 @@ def _enqueue(job_data: dict) -> dict:
             ),
         )
     job_id = job_data["job_id"]
-    r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job_data))
-    r.rpush("job_queue", job_id)
+    with r.pipeline(transaction=False) as pipe:
+        pipe.setex(f"job:{job_id}", JOB_TTL, json.dumps(job_data))
+        pipe.sadd(f"student:{student_id}:active", job_id)
+        pipe.rpush("job_queue", job_id)
+        pipe.execute()
     log.info(
         f"Job {job_id[:8]} queued | student={student_id} "
         f"runtime={job_data['runtime']} cpus={job_data['cpus']} mem={job_data['memory']}"
@@ -438,13 +437,17 @@ async def submit_job_form(
 # ── Job queries ───────────────────────────────────────────────────────────────
 @app.get("/jobs")
 def list_jobs(status: str | None = None):
+    keys = list(iter_job_keys())
     jobs = []
-    for key in iter_job_keys():
-        raw = r.get(key)
-        if raw:
-            job = json.loads(raw)
-            if status is None or job.get("status") == status:
-                jobs.append(job)
+    if keys:
+        with r.pipeline(transaction=False) as pipe:
+            for key in keys:
+                pipe.get(key)
+            for raw in pipe.execute():
+                if raw:
+                    job = json.loads(raw)
+                    if status is None or job.get("status") == status:
+                        jobs.append(job)
     jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return {"jobs": jobs, "total": len(jobs)}
 
@@ -473,11 +476,7 @@ def get_job(job_id: str):
     return job
 
 
-@app.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: str):
-    raw = r.get(f"job:{job_id}")
-    if not raw:
-        raise HTTPException(status_code=404, detail="Job not found")
+def _cancel_job_impl(job_id: str, raw: str) -> dict:
     job = json.loads(raw)
     if job["status"] in ("completed", "failed", "cancelled"):
         return {"job_id": job_id, "status": job["status"], "message": "Job is already finished"}
@@ -485,9 +484,24 @@ def cancel_job(job_id: str):
     if job["status"] == "queued":
         job["status"]      = "cancelled"
         job["finished_at"] = datetime.now(timezone.utc).isoformat()
-    r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
-    log.info(f"Job {job_id[:8]} cancel requested")
+        with r.pipeline(transaction=False) as pipe:
+            pipe.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
+            pipe.srem(f"student:{job['student_id']}:active", job_id)
+            pipe.execute()
+    else:
+        r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
     return {"job_id": job_id, "status": job["status"], "cancel_requested": True}
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    raw = r.get(f"job:{job_id}")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Job not found")
+    result = _cancel_job_impl(job_id, raw)
+    if "message" not in result:
+        log.info(f"Job {job_id[:8]} cancel requested")
+    return result
 
 
 # ── SSE log stream ────────────────────────────────────────────────────────────
@@ -497,22 +511,30 @@ async def stream_logs(job_id: str, request: Request):
     if not raw:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    log_key = f"job:logs:{job_id}"
+    job_key = f"job:{job_id}"
+
+    def _fetch(start: int):
+        with r.pipeline(transaction=False) as pipe:
+            pipe.lrange(log_key, start, -1)
+            pipe.get(job_key)
+            return pipe.execute()
+
     async def event_generator():
         sent = 0
         while True:
             if await request.is_disconnected():
                 break
 
-            new_entries = await asyncio.to_thread(r.lrange, f"job:logs:{job_id}", sent, -1)
+            new_entries, job_raw = await asyncio.to_thread(_fetch, sent)
             for entry in new_entries:
                 yield {"data": entry}
-                sent += 1
+            sent += len(new_entries)
 
-            job_raw = await asyncio.to_thread(r.get, f"job:{job_id}")
             if job_raw:
                 job = json.loads(job_raw)
                 if job["status"] in ("completed", "failed", "cancelled"):
-                    tail = await asyncio.to_thread(r.lrange, f"job:logs:{job_id}", sent, -1)
+                    tail = await asyncio.to_thread(r.lrange, log_key, sent, -1)
                     for entry in tail:
                         yield {"data": entry}
                     yield {"data": json.dumps({"type": "end", "status": job["status"]})}
@@ -572,8 +594,15 @@ def cluster_status():
 
     counters = {"queued": 0, "running": 0, "completed": 0, "failed": 0, "cancelled": 0}
     durations = []
-    for key in iter_job_keys():
-        raw = r.get(key)
+    job_keys = list(iter_job_keys())
+    if job_keys:
+        with r.pipeline(transaction=False) as pipe:
+            for key in job_keys:
+                pipe.get(key)
+            job_raws = pipe.execute()
+    else:
+        job_raws = []
+    for raw in job_raws:
         if not raw:
             continue
         job = json.loads(raw)
@@ -601,24 +630,41 @@ def cluster_status():
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 @app.delete("/jobs/cleanup")
 def cleanup_jobs(_=Depends(require_admin)):
-    removed = 0
-    for key in iter_job_keys():
-        raw = r.get(key)
-        if not raw:
-            continue
-        job = json.loads(raw)
-        if job["status"] in ("completed", "failed", "cancelled"):
-            job_id = job["job_id"]
-            r.delete(key)
-            r.delete(f"job:logs:{job_id}")
-            for suffix in ("_output", "_data", "_repo"):
-                d = JOBS_DIR / f"{job_id}{suffix}"
-                if d.exists():
-                    shutil.rmtree(d, ignore_errors=True)
-            py_file = JOBS_DIR / f"{job_id}.py"
-            if py_file.exists():
-                py_file.unlink()
-            removed += 1
+    job_keys = list(iter_job_keys())
+    finished: list[tuple[str, dict]] = []
+
+    if job_keys:
+        with r.pipeline(transaction=False) as pipe:
+            for key in job_keys:
+                pipe.get(key)
+            for key, raw in zip(job_keys, pipe.execute()):
+                if raw:
+                    job = json.loads(raw)
+                    if job["status"] in ("completed", "failed", "cancelled"):
+                        finished.append((key, job))
+
+    if finished:
+        with r.pipeline(transaction=False) as pipe:
+            for key, job in finished:
+                job_id     = job["job_id"]
+                student_id = job.get("student_id")
+                pipe.delete(key)
+                pipe.delete(f"job:logs:{job_id}")
+                if student_id:
+                    pipe.srem(f"student:{student_id}:active", job_id)
+            pipe.execute()
+
+    for _, job in finished:
+        job_id = job["job_id"]
+        for suffix in ("_output", "_data", "_repo"):
+            d = JOBS_DIR / f"{job_id}{suffix}"
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+        py_file = JOBS_DIR / f"{job_id}.py"
+        if py_file.exists():
+            py_file.unlink()
+
+    removed = len(finished)
     log.info(f"Cleanup: removed {removed} finished job(s)")
     return {"removed_jobs": removed}
 
@@ -639,8 +685,15 @@ def admin_stats(_=Depends(require_admin)):
     daily_jobs:    dict[str, int]  = {}
     overall_durations: list[float] = []
 
-    for key in iter_job_keys():
-        raw = r.get(key)
+    stats_keys = list(iter_job_keys())
+    if stats_keys:
+        with r.pipeline(transaction=False) as pipe:
+            for key in stats_keys:
+                pipe.get(key)
+            stats_raws = pipe.execute()
+    else:
+        stats_raws = []
+    for raw in stats_raws:
         if not raw:
             continue
         job = json.loads(raw)
@@ -699,16 +752,10 @@ def admin_kill_job(job_id: str, _=Depends(require_admin)):
     raw = r.get(f"job:{job_id}")
     if not raw:
         raise HTTPException(status_code=404, detail="Job not found")
-    job = json.loads(raw)
-    if job["status"] in ("completed", "failed", "cancelled"):
-        return {"job_id": job_id, "status": job["status"], "message": "already finished"}
-    job["cancel_requested"] = True
-    if job["status"] == "queued":
-        job["status"]      = "cancelled"
-        job["finished_at"] = datetime.now(timezone.utc).isoformat()
-    r.setex(f"job:{job_id}", JOB_TTL, json.dumps(job))
-    log.warning(f"Admin killed job {job_id[:8]}")
-    return {"job_id": job_id, "status": job["status"]}
+    result = _cancel_job_impl(job_id, raw)
+    if "message" not in result:
+        log.warning(f"Admin killed job {job_id[:8]}")
+    return result
 
 
 # ── API key management ────────────────────────────────────────────────────────
@@ -736,12 +783,15 @@ def create_api_key(payload: ApiKeyCreate, _=Depends(require_admin)):
 
 @app.get("/admin/keys")
 def list_api_keys(_=Depends(require_admin)):
-    keys = r.smembers("apikeys_set")
+    keys = list(r.smembers("apikeys_set"))
     out  = []
-    for k in keys:
-        raw = r.get(f"apikey:{k}")
-        if raw:
-            out.append({"api_key": k, **json.loads(raw)})
+    if keys:
+        with r.pipeline(transaction=False) as pipe:
+            for k in keys:
+                pipe.get(f"apikey:{k}")
+            for k, raw in zip(keys, pipe.execute()):
+                if raw:
+                    out.append({"api_key": k, **json.loads(raw)})
     out.sort(key=lambda x: x["created_at"], reverse=True)
     return {"keys": out}
 
